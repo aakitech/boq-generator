@@ -1,135 +1,189 @@
 import Footer from "@/components/Footer";
+import WaitlistForm from "@/components/WaitlistForm";
+
+const launchFeatures = [
+  "Turn a Scope of Work PDF or Word document into a structured BOQ draft",
+  "Group items into proper trade bills with standard tender formatting",
+  "Edit line items in the browser before exporting to Excel",
+  "Rate existing BOQs using context from Southern African construction projects",
+];
+
+const audience = [
+  "Contractors preparing tender submissions under tight timelines",
+  "Estimators who need faster first drafts before commercial review",
+  "Consultants who want cleaner BOQ structure from scope documents",
+  "Developers and project teams comparing pricing options early",
+];
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0a0a]">
-      {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-20 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <a href="/">
-            <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="120" height="28" />
+            <img
+              src="/boqlogo.png"
+              alt="BOQ Generator"
+              className="h-7 w-auto"
+              width="120"
+              height="28"
+            />
           </a>
-          <div className="flex items-center gap-4">
-            <a href="/dashboard" className="text-xs text-gray-400 hover:text-white transition-colors hidden sm:block">
-              My BOQs
+          <div className="flex items-center gap-3 sm:gap-4">
+            <a
+              href="/dashboard"
+              className="hidden text-xs text-gray-400 transition-colors hover:text-white sm:block"
+            >
+              Existing user? Dashboard
             </a>
             <a
               href="/upload"
-              className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors"
+              className="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
             >
-              Generate BOQ →
+              Try the product
             </a>
           </div>
         </div>
       </nav>
 
       <main className="flex-1">
-        {/* Hero */}
-        <section className="relative flex flex-col items-center justify-center text-center px-4 pt-40 pb-28">
+        <section className="relative px-4 pb-20 pt-36 sm:pb-24 sm:pt-40">
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-amber-500/10 rounded-full blur-[140px]" />
+            <div className="absolute left-1/2 top-24 h-[520px] w-[760px] -translate-x-1/2 rounded-full bg-amber-500/10 blur-[150px]" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.10),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_55%)]" />
           </div>
-          <div className="relative z-10 max-w-3xl mx-auto space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-medium mb-2">
-              Built for Zambian construction professionals
+
+          <div className="relative z-10 mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <div className="text-center lg:text-left">
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
+                Launching soon for Southern African construction teams
+              </div>
+              <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
+                Turn scope documents into
+                <span className="block text-amber-400">tender-ready BOQs</span>
+                faster.
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-gray-300">
+                BOQ Generator helps construction teams move from Scope of Work to
+                structured BOQ drafts, cleaner rate workflows, and faster tender prep.
+                We are opening access soon, and the waitlist is the best way to get launch
+                updates and early access news.
+              </p>
+
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-start">
+                <a
+                  href="#waitlist"
+                  className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300"
+                >
+                  Join the waitlist
+                </a>
+                <a
+                  href="#how-it-works"
+                  className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
+                >
+                  See how it works
+                </a>
+              </div>
             </div>
-            <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-tight">
-              From Scope of Work
-              <br />
-              to <span className="text-amber-400">Tender-Ready BOQ</span>
-              <br />
-              in 60 seconds
-            </h1>
-            <p className="text-gray-400 text-lg leading-relaxed max-w-xl mx-auto">
-              Upload your Scope of Work document — PDF or Word. Our AI extracts every line item,
-              groups them into proper bills, and delivers a structured Bill of Quantities in
-              standard Zambian tender format.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-              <a
-                href="/upload"
-                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-bold text-base transition-colors"
-              >
-                Generate your BOQ →
-              </a>
-              <a
-                href="/dashboard"
-                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-semibold text-base transition-colors"
-              >
-                View my BOQs
-              </a>
+
+            <div id="waitlist" className="lg:pl-4">
+              <WaitlistForm />
             </div>
-            <p className="text-xs text-gray-600 pt-1">
-              One-time payment · Instant delivery · Secure checkout via Stripe
-            </p>
           </div>
         </section>
 
-        {/* How it works */}
-        <section className="max-w-5xl mx-auto px-4 py-20">
-          <h2 className="text-2xl font-bold text-center text-white mb-12">How it works</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <section id="how-it-works" className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
+          <div className="mb-10 text-center">
+            <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-400/80">
+              How It Works
+            </p>
+            <h2 className="mt-3 text-3xl font-bold text-white">
+              What BOQ Generator will help your team do at launch
+            </h2>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3">
             {[
               {
                 step: "01",
-                title: "Upload your document",
-                desc: "Upload a Scope of Work PDF or Word document — up to 15 MB. We extract the text instantly.",
+                title: "Upload the scope",
+                desc: "Bring a Scope of Work PDF or Word document into the workflow without rebuilding the BOQ manually from scratch.",
               },
               {
                 step: "02",
-                title: "Pay once",
-                desc: "Fee is based on your project size — from $20 to $500. Secure checkout via Stripe. No subscription, no hidden costs.",
+                title: "Generate the draft",
+                desc: "Use AI to extract line items, quantities, and structure into proper trade bills that match tender-ready expectations.",
               },
               {
                 step: "03",
-                title: "Get your BOQ",
-                desc: "Receive a structured, editable BOQ. Review line items, add rates, and download your .xlsx in seconds.",
+                title: "Refine and export",
+                desc: "Review, adjust, rate, and export the BOQ once your team is ready to move into pricing and submission.",
               },
             ].map((item) => (
               <div
                 key={item.step}
-                className="rounded-xl border border-white/10 bg-white/[0.02] p-6 space-y-3"
+                className="rounded-2xl border border-white/10 bg-white/[0.02] p-6"
               >
-                <span className="text-3xl font-bold text-amber-400/30 font-mono">{item.step}</span>
-                <h3 className="font-semibold text-white">{item.title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">{item.desc}</p>
+                <p className="font-mono text-3xl font-bold text-amber-400/30">{item.step}</p>
+                <h3 className="mt-4 text-lg font-semibold text-white">{item.title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-gray-400">{item.desc}</p>
               </div>
             ))}
           </div>
         </section>
 
-        {/* What you get */}
-        <section className="max-w-5xl mx-auto px-4 py-10 pb-20">
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-8 sm:p-12">
-            <h2 className="text-2xl font-bold text-white mb-8">What you get</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                "Preliminary & General items bill — always included",
-                "Bills grouped by trade: Earthworks, Concrete, Structural Steel, Electrical, and more",
-                "Standard Zambian BOQ format with ZMW pricing columns",
-                "Item numbers, descriptions, units, and quantities extracted from your SOW",
-                "Optional AI rate estimates based on the current Zambian construction market",
-                "In-browser editing — adjust any item before downloading",
-                "AI BOQ Assistant to refine and restructure your BOQ",
-                "Download as .xlsx — ready for tender submission",
-              ].map((item) => (
-                <div key={item} className="flex items-start gap-3">
-                  <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                  </svg>
-                  <span className="text-sm text-gray-300">{item}</span>
-                </div>
-              ))}
+        <section className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
+          <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-8 sm:p-10">
+              <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">
+                What You&apos;ll Get
+              </p>
+              <h2 className="mt-3 text-3xl font-bold text-white">
+                Built for the messy first mile of BOQ preparation
+              </h2>
+              <div className="mt-8 space-y-4">
+                {launchFeatures.map((item) => (
+                  <div key={item} className="flex items-start gap-3">
+                    <svg
+                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-400"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span className="text-sm leading-relaxed text-gray-300">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8 sm:p-10">
+              <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">
+                Who It&apos;s For
+              </p>
+              <h2 className="mt-3 text-3xl font-bold text-white">
+                Join the waitlist if your team touches tenders, estimates, or project pricing
+              </h2>
+              <div className="mt-8 space-y-4">
+                {audience.map((item) => (
+                  <div key={item} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-sm leading-relaxed text-gray-300">{item}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Pricing */}
-        <section className="max-w-5xl mx-auto px-4 py-10 pb-24 text-center">
+        <section className="mx-auto max-w-6xl px-4 py-10 pb-24 text-center">
           <h2 className="text-2xl font-bold text-white mb-4">Simple pricing</h2>
           <p className="text-gray-400 text-sm mb-10">No subscriptions. Pay only when you need a BOQ.</p>
           <div className="inline-block rounded-2xl border border-amber-500/30 bg-[#0f0f0f] p-8 text-left min-w-[280px]">
-            <p className="text-5xl font-bold text-amber-400 mb-1">$20 – $500</p>
+            <p className="text-5xl font-bold text-amber-400 mb-1">$20 - $500</p>
             <p className="text-gray-400 text-sm mb-6">USD · one-time per BOQ · based on project size</p>
             <ul className="space-y-2 mb-8">
               {[
@@ -137,21 +191,58 @@ export default function LandingPage() {
                 "Unlimited edits in-browser",
                 "Excel download included",
                 "BOQ saved to your account",
-              ].map((f) => (
-                <li key={f} className="flex items-center gap-2 text-sm text-gray-300">
-                  <svg className="w-4 h-4 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-2 text-sm text-gray-300">
+                  <svg
+                    className="w-4 h-4 text-amber-400 shrink-0"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                      clipRule="evenodd"
+                    />
                   </svg>
-                  {f}
+                  {item}
                 </li>
               ))}
             </ul>
             <a
-              href="/upload"
+              href="#waitlist"
               className="block w-full py-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-bold text-sm text-center transition-colors"
             >
-              Generate my BOQ →
+              Join the waitlist
             </a>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
+          <div className="rounded-3xl border border-white/10 bg-[#0f0f0f] p-8 text-center sm:p-12">
+            <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">
+              Stay In The Loop
+            </p>
+            <h2 className="mt-3 text-3xl font-bold text-white sm:text-4xl">
+              Join the list now, and we&apos;ll send one clear update when access opens.
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base">
+              No subscription pressure, no scattered updates. Just one place to capture
+              interest, keep your team informed, and launch to the right people all at once.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <a
+                href="#waitlist"
+                className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300"
+              >
+                Join the waitlist
+              </a>
+              <a
+                href="/dashboard"
+                className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                Existing user? Open dashboard
+              </a>
+            </div>
           </div>
         </section>
       </main>
