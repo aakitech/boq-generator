@@ -236,34 +236,6 @@ export default function LandingPage() {
           <WaitlistForm />
         </section>
 
-        <section className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
-          <div className="rounded-3xl border border-white/10 bg-[#0f0f0f] p-8 text-center sm:p-12">
-            <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">
-              Stay In The Loop
-            </p>
-            <h2 className="mt-3 text-3xl font-bold text-white sm:text-4xl">
-              Join the list now, and we&apos;ll send one clear update when access opens.
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base">
-              No subscription pressure, no scattered updates. Just one place to capture
-              interest, keep your team informed, and launch to the right people all at once.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <a
-                href="#waitlist"
-                className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300"
-              >
-                Join the waitlist
-              </a>
-              <a
-                href="/dashboard"
-                className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
-              >
-                Existing user? Open dashboard
-              </a>
-            </div>
-          </div>
-        </section>
       </main>
 
       <Footer />
