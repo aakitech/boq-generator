@@ -9,7 +9,7 @@ function getAppUrl() {
   return (
     process.env.NEXT_PUBLIC_APP_URL ??
     process.env.NEXT_PUBLIC_BASE_URL ??
-    "https://boqgenerator.com"
+    "https://boq.aakitech.com"
   );
 }
 
@@ -51,7 +51,8 @@ We will send launch updates, early access news, and product milestones to this e
 
 You can follow our progress at ${appUrl}.
 
-BOQ Generator`,
+Yours,
+BOQ Team`,
     }),
   });
 

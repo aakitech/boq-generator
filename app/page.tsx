@@ -53,41 +53,35 @@ export default function LandingPage() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.10),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_55%)]" />
           </div>
 
-          <div className="relative z-10 mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <div className="text-center lg:text-left">
-              <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-                Launching soon for Southern African construction teams
-              </div>
-              <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
-                Turn scope documents into
-                <span className="block text-amber-400">tender-ready BOQs</span>
-                faster.
-              </h1>
-              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-gray-300">
-                BOQ Generator helps construction teams move from Scope of Work to
-                structured BOQ drafts, cleaner rate workflows, and faster tender prep.
-                We are opening access soon, and the waitlist is the best way to get launch
-                updates and early access news.
-              </p>
-
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-start">
-                <a
-                  href="#waitlist"
-                  className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300"
-                >
-                  Join the waitlist
-                </a>
-                <a
-                  href="#how-it-works"
-                  className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
-                >
-                  See how it works
-                </a>
-              </div>
+          <div className="relative z-10 mx-auto max-w-3xl text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
+              Built for Zambian construction professionals
             </div>
+            <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
+              Turn scope documents into
+              <span className="block text-amber-400">tender-ready BOQs</span>
+              faster.
+            </h1>
+            <p className="mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-gray-300">
+              BOQ Generator helps construction teams move from Scope of Work to
+              structured BOQ drafts, cleaner rate workflows, and faster tender prep.
+              We are opening access soon, and the waitlist is the best way to get launch
+              updates and early access news.
+            </p>
 
-            <div id="waitlist" className="lg:pl-4">
-              <WaitlistForm />
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
+              <a
+                href="#waitlist"
+                className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300"
+              >
+                Join the waitlist
+              </a>
+              <a
+                href="#how-it-works"
+                className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                See how it works
+              </a>
             </div>
           </div>
         </section>
@@ -129,6 +123,15 @@ export default function LandingPage() {
                 <p className="mt-3 text-sm leading-relaxed text-gray-400">{item.desc}</p>
               </div>
             ))}
+          </div>
+
+          <div className="mt-10 text-center">
+            <a
+              href="/upload"
+              className="inline-flex rounded-xl bg-amber-400 px-8 py-4 text-base font-semibold text-black transition-colors hover:bg-amber-300"
+            >
+              Try the product
+            </a>
           </div>
         </section>
 
@@ -215,6 +218,22 @@ export default function LandingPage() {
               Join the waitlist
             </a>
           </div>
+        </section>
+
+        <section id="waitlist" className="mx-auto max-w-4xl px-4 py-8 sm:py-10">
+          <div className="text-center mb-10">
+            <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">
+              Join The Waitlist
+            </p>
+            <h2 className="mt-3 text-3xl font-bold text-white">
+              Get launch updates and early access news
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base">
+              Leave your details and we&apos;ll let you know when BOQ Generator is ready.
+            </p>
+          </div>
+
+          <WaitlistForm />
         </section>
 
         <section className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
