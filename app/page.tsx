@@ -1,4 +1,5 @@
 import Footer from "@/components/Footer";
+import DemoVideo from "@/components/DemoVideo";
 import WaitlistForm from "@/components/WaitlistForm";
 
 const launchFeatures = [
@@ -15,6 +16,11 @@ const audience = [
   "Developers and project teams comparing pricing options early",
 ];
 
+const isProdWaitlistMode =
+  process.env.NODE_ENV === "production" &&
+  (process.env.NEXT_PUBLIC_APP_URL === "https://boq.aakitech.com" ||
+    process.env.NEXT_PUBLIC_BASE_URL === "https://boq.aakitech.com");
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0a0a]">
@@ -29,20 +35,22 @@ export default function LandingPage() {
               height="28"
             />
           </a>
-          <div className="flex items-center gap-3 sm:gap-4">
-            <a
-              href="/dashboard"
-              className="hidden text-xs text-gray-400 transition-colors hover:text-white sm:block"
-            >
-              Existing user? Dashboard
-            </a>
-            <a
-              href="/upload"
-              className="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-            >
-              Try the product
-            </a>
-          </div>
+          {!isProdWaitlistMode ? (
+            <div className="flex items-center gap-3 sm:gap-4">
+              <a
+                href="/dashboard"
+                className="hidden text-xs text-gray-400 transition-colors hover:text-white sm:block"
+              >
+                Existing user? Dashboard
+              </a>
+              <a
+                href="/upload"
+                className="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                Try the product
+              </a>
+            </div>
+          ) : null}
         </div>
       </nav>
 
@@ -96,6 +104,8 @@ export default function LandingPage() {
             </h2>
           </div>
 
+          <DemoVideo />
+
           <div className="grid gap-6 md:grid-cols-3">
             {[
               {
@@ -125,14 +135,16 @@ export default function LandingPage() {
             ))}
           </div>
 
-          <div className="mt-10 text-center">
-            <a
-              href="/upload"
-              className="inline-flex rounded-xl bg-amber-400 px-8 py-4 text-base font-semibold text-black transition-colors hover:bg-amber-300"
-            >
-              Try the product
-            </a>
-          </div>
+          {!isProdWaitlistMode ? (
+            <div className="mt-10 text-center">
+              <a
+                href="/upload"
+                className="inline-flex rounded-xl bg-amber-400 px-8 py-4 text-base font-semibold text-black transition-colors hover:bg-amber-300"
+              >
+                Try the product
+              </a>
+            </div>
+          ) : null}
         </section>
 
         <section className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
