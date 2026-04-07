@@ -63,7 +63,7 @@ export default function LandingPage() {
 
           <div className="relative z-10 mx-auto max-w-3xl text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-              Built for Zambian construction professionals
+              Built for Southern African construction professionals
             </div>
             <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
               Turn scope documents into
