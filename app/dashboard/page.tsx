@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
+import CreditBadge from "@/components/CreditBadge";
 
 interface BOQRow {
   id: string;
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const ph = usePostHog();
   const [user, setUser] = useState<User | null>(null);
   const [boqs, setBOQs] = useState<BOQRow[]>([]);
+  const [remainingCredits, setRemainingCredits] = useState(0);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
@@ -37,6 +39,12 @@ export default function DashboardPage() {
       if (res.ok) {
         const { boqs } = await res.json();
         setBOQs(boqs || []);
+      }
+
+      const creditRes = await fetch("/api/credits");
+      if (creditRes.ok) {
+        const { remainingCredits } = await creditRes.json();
+        setRemainingCredits(remainingCredits ?? 0);
       }
       setLoading(false);
     }
@@ -86,7 +94,10 @@ export default function DashboardPage() {
       <header className="border-b border-white/10 bg-[#0a0a0a]/95 backdrop-blur sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+            <a href="/">
+              <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+            </a>
+            <CreditBadge remainingCredits={remainingCredits} />
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 hidden sm:block">{user?.email}</span>

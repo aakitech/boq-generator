@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 
 import type { BOQBill, BOQDocument, BOQItem, BOQQualitySummary } from "@/lib/types";
 import { usePostHog } from "posthog-js/react";
+import CreditBadge from "@/components/CreditBadge";
 
 interface DBBoq {
   id: string;
@@ -56,6 +57,7 @@ export default function BOQPage() {
   const [assistantPreview, setAssistantPreview] = useState<AssistantPreview | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [undoCount, setUndoCount] = useState(0);
+  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
@@ -80,6 +82,17 @@ export default function BOQPage() {
     }
     load();
   }, [id, router]);
+
+  useEffect(() => {
+    async function loadCredits() {
+      const res = await fetch("/api/credits");
+      if (!res.ok) return;
+      const body = (await res.json()) as { remainingCredits?: number };
+      setRemainingCredits(body.remainingCredits ?? 0);
+    }
+
+    void loadCredits();
+  }, []);
 
   const saveToDB = useCallback(
     (updated: BOQDocument) => {
@@ -411,12 +424,10 @@ export default function BOQPage() {
       <header className="sticky top-0 z-20 border-b border-white/15 bg-[#0b0c0f]/95 backdrop-blur">
         <div className="max-w-[1500px] mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="text-gray-300 hover:text-white text-sm shrink-0"
-            >
-              ← Dashboard
-            </button>
+            <a href="/" className="shrink-0">
+              <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+            </a>
+            {remainingCredits !== null ? <CreditBadge remainingCredits={remainingCredits} /> : null}
             <div className="min-w-0">
               <p className="text-xs text-gray-300 truncate">{boq.location}</p>
               <h1 className="text-sm font-semibold text-white truncate">{boq.project}</h1>

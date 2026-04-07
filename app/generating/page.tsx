@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import { usePostHog } from "posthog-js/react";
+import CreditBadge from "@/components/CreditBadge";
 
 function GeneratingContent() {
   const router = useRouter();
@@ -15,7 +16,19 @@ function GeneratingContent() {
   const [statusText, setStatusText] = useState("Verifying payment and preparing your BOQ...");
   const [isRateBoq, setIsRateBoq] = useState(false);
   const [isCheckingSavedBoq, setIsCheckingSavedBoq] = useState(false);
+  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
   const started = useRef(false);
+
+  useEffect(() => {
+    async function loadCredits() {
+      const res = await fetch("/api/credits");
+      if (!res.ok) return;
+      const body = (await res.json()) as { remainingCredits?: number };
+      setRemainingCredits(body.remainingCredits ?? 0);
+    }
+
+    void loadCredits();
+  }, []);
 
   async function recoverCompletedBoq(currentSessionId: string): Promise<string | null> {
     try {
@@ -209,11 +222,20 @@ function GeneratingContent() {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16">
+      <nav className="fixed top-0 left-0 right-0 z-20 border-b border-white/5 bg-[#0f0f0f]/80 backdrop-blur">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+          <a href="/">
+            <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+          </a>
+          {remainingCredits !== null ? <CreditBadge remainingCredits={remainingCredits} /> : null}
+        </div>
+      </nav>
+
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-amber-500/10 rounded-full blur-[120px]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-md text-center">
+      <div className="relative z-10 mt-14 w-full max-w-md text-center">
         {error ? (
           <div className="space-y-6">
             <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
