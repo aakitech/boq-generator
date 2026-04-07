@@ -26,6 +26,14 @@ const RATE_LIMITED_ROUTES = [
   "/api/extract",
 ];
 
+const PROTECTED_PAGE_PREFIXES = [
+  "/dashboard",
+  "/upload",
+  "/boq",
+  "/generating",
+  "/affiliate",
+];
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -69,7 +77,7 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Always allow: landing page, auth pages, policy pages, webhooks, Sentry tunnel, health check
+  // Always allow public pages and explicitly public APIs.
   if (
     pathname === "/" ||
     pathname.startsWith("/login") ||
@@ -77,6 +85,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/privacy") ||
     pathname.startsWith("/terms") ||
     pathname.startsWith("/contact") ||
+    pathname.startsWith("/api/waitlist") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/monitoring")
@@ -101,8 +110,14 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Require auth for everything else
-  if (!user) {
+  // Only enforce auth at the proxy layer for private app pages.
+  // API routes should handle their own auth/authorization in-route so
+  // public endpoints and static assets do not get redirected unexpectedly.
+  const requiresPageAuth = PROTECTED_PAGE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+
+  if (requiresPageAuth && !user) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", pathname);
