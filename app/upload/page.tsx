@@ -35,10 +35,25 @@ const PAYMENT_MODE =
       : "hybrid"
     : "stripe";
 
-function openExternalUrl(url: string) {
-  const popup = window.open(url, "_blank", "noopener,noreferrer");
-  if (!popup) {
-    window.location.href = url;
+function openPendingExternalWindow() {
+  const popup = window.open("about:blank", "_blank");
+  if (popup) {
+    popup.opener = null;
+  }
+  return popup;
+}
+
+function resolveExternalWindow(popup: Window | null, url: string) {
+  if (popup) {
+    popup.location.href = url;
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function closePendingExternalWindow(popup: Window | null) {
+  if (popup && !popup.closed) {
+    popup.close();
   }
 }
 
@@ -116,6 +131,8 @@ function GenerateBOQTab() {
   const [bundleDocs, setBundleDocs] = useState<ExtractedDoc[]>([]);
   const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
   const [manualPaymentContact, setManualPaymentContact] = useState<string | null>(null);
+  const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
+  const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
   const ph = usePostHog();
   const { remainingCredits, refreshCredits, setRemainingCredits } = useFreeBoqCredits();
   const attachedSupportingCount = supportingUploads.filter((upload) => upload.file).length;
@@ -169,6 +186,8 @@ function GenerateBOQTab() {
     setBundleDocs([]);
     setManualPaymentRequested(false);
     setManualPaymentContact(null);
+    setManualPaymentUrl(null);
+    setManualPaymentDetails(null);
   }
 
   async function extractSingleDocument(
@@ -394,6 +413,8 @@ function GenerateBOQTab() {
     localStorage.setItem("boq_type", "generate");
     setManualPaymentRequested(false);
     setManualPaymentContact(null);
+    setManualPaymentUrl(null);
+    setManualPaymentDetails(null);
     ph.capture("generate_initiated", {
       suggest_rates: suggestRates,
       supporting_docs_count: attachedSupportingCount,
@@ -479,24 +500,33 @@ function GenerateBOQTab() {
     setError(null);
 
     if (PAYMENT_MODE !== "stripe") {
+      const pendingWindow = openPendingExternalWindow();
       try {
         const res = await fetch("/api/manual-payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ boq_id: boqId, type: "generate_boq" }),
         });
-        const body = (await res.json()) as { error?: string; whatsappUrl?: string; contact?: string };
+        const body = (await res.json()) as {
+          error?: string;
+          whatsappUrl?: string;
+          contact?: string;
+          paymentDetails?: string;
+        };
         if (!res.ok || !body.whatsappUrl) {
           throw new Error(body.error || "Could not start manual payment");
         }
 
         setManualPaymentRequested(true);
         setManualPaymentContact(body.contact ?? null);
+        setManualPaymentUrl(body.whatsappUrl);
+        setManualPaymentDetails(body.paymentDetails ?? null);
         ph.capture("manual_payment_requested", { type: "generate_boq", boqId });
-        openExternalUrl(body.whatsappUrl);
+        resolveExternalWindow(pendingWindow, body.whatsappUrl);
         setStage("preview");
         return;
       } catch (err) {
+        closePendingExternalWindow(pendingWindow);
         setStage("preview");
         const msg = err instanceof Error ? err.message : "Something went wrong";
         setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
@@ -560,6 +590,8 @@ function GenerateBOQTab() {
         paymentMode={PAYMENT_MODE}
         manualPaymentRequested={manualPaymentRequested}
         manualPaymentContact={manualPaymentContact}
+        manualPaymentUrl={manualPaymentUrl}
+        manualPaymentDetails={manualPaymentDetails}
       />
     );
   }
@@ -964,6 +996,8 @@ function RateBOQTab() {
   const [customMargin, setCustomMargin] = useState(false);
   const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
   const [manualPaymentContact, setManualPaymentContact] = useState<string | null>(null);
+  const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
+  const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
   const ph = usePostHog();
   const { remainingCredits, refreshCredits, setRemainingCredits } = useFreeBoqCredits();
 
@@ -980,6 +1014,8 @@ function RateBOQTab() {
     setPreview(null);
     setManualPaymentRequested(false);
     setManualPaymentContact(null);
+    setManualPaymentUrl(null);
+    setManualPaymentDetails(null);
   }
 
   async function handleValidate() {
@@ -1070,24 +1106,33 @@ function RateBOQTab() {
         return;
       }
 
+      const pendingWindow = openPendingExternalWindow();
       try {
         const res = await fetch("/api/manual-payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ boq_id: rateBoqId, type: "rate_boq" }),
         });
-        const body = (await res.json()) as { error?: string; whatsappUrl?: string; contact?: string };
+        const body = (await res.json()) as {
+          error?: string;
+          whatsappUrl?: string;
+          contact?: string;
+          paymentDetails?: string;
+        };
         if (!res.ok || !body.whatsappUrl) {
           throw new Error(body.error || "Could not start manual payment");
         }
 
         setManualPaymentRequested(true);
         setManualPaymentContact(body.contact ?? null);
+        setManualPaymentUrl(body.whatsappUrl);
+        setManualPaymentDetails(body.paymentDetails ?? null);
         ph.capture("manual_payment_requested", { type: "rate_boq", province: ctx.province, boqId: rateBoqId });
-        openExternalUrl(body.whatsappUrl);
+        resolveExternalWindow(pendingWindow, body.whatsappUrl);
         setStage("ready");
         return;
       } catch (err) {
+        closePendingExternalWindow(pendingWindow);
         setStage("ready");
         const msg = err instanceof Error ? err.message : "Something went wrong";
         setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
@@ -1381,6 +1426,8 @@ function RateBOQTab() {
             requesting={stage === "paying"}
             requested={manualPaymentRequested}
             contactLabel={manualPaymentContact}
+            whatsappUrl={manualPaymentUrl}
+            paymentDetails={manualPaymentDetails}
             onCardPayment={async () => {
               if (!preview) return;
               localStorage.setItem("boq_type", "rate_boq");

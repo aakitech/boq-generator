@@ -1,11 +1,15 @@
 "use client";
 
+import { useState } from "react";
+
 interface ManualPaymentOptionsProps {
   priceDisplay: string;
   onWhatsAppPayment: () => void;
   requesting: boolean;
   requested: boolean;
   contactLabel?: string | null;
+  whatsappUrl?: string | null;
+  paymentDetails?: string | null;
   onCardPayment?: () => void;
   cardEnabled?: boolean;
   cardRequesting?: boolean;
@@ -17,10 +21,25 @@ export default function ManualPaymentOptions({
   requesting,
   requested,
   contactLabel,
+  whatsappUrl,
+  paymentDetails,
   onCardPayment,
   cardEnabled = false,
   cardRequesting = false,
 }: ManualPaymentOptionsProps) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopyDetails() {
+    if (!paymentDetails) return;
+    try {
+      await navigator.clipboard.writeText(paymentDetails);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 text-left">
@@ -43,7 +62,7 @@ export default function ManualPaymentOptions({
             disabled={requesting}
             className="w-full rounded-lg bg-green-500 hover:bg-green-400 px-4 py-3 text-sm font-semibold text-black transition-colors disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {requesting ? "Opening WhatsApp..." : "Manual Payment on WhatsApp"}
+            {requesting ? "Preparing WhatsApp..." : "Chat on WhatsApp"}
           </button>
 
           {cardEnabled ? (
@@ -73,6 +92,32 @@ export default function ManualPaymentOptions({
           </p>
           {contactLabel ? (
             <p className="mt-2 text-xs text-gray-400">WhatsApp contact: {contactLabel}</p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {whatsappUrl ? (
+              <a
+                href={whatsappUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 px-3 py-2 text-xs font-medium text-white transition-colors"
+              >
+                Open WhatsApp Web
+              </a>
+            ) : null}
+            {paymentDetails ? (
+              <button
+                type="button"
+                onClick={handleCopyDetails}
+                className="inline-flex items-center justify-center rounded-md border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] px-3 py-2 text-xs font-medium text-white transition-colors"
+              >
+                {copied ? "Copied payment details" : "Copy payment details"}
+              </button>
+            ) : null}
+          </div>
+          {paymentDetails ? (
+            <p className="mt-2 text-xs text-gray-400">
+              If WhatsApp does not open on this device, copy the payment details and send them manually.
+            </p>
           ) : null}
         </div>
       ) : null}

@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
       whatsappUrl,
       contact,
       priceDisplay,
+      paymentDetails: message,
     });
   } catch (err) {
     logger.error("manual-payment error", { route: "manual-payment", error: err instanceof Error ? err.message : String(err) });

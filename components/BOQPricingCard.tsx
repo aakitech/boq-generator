@@ -22,6 +22,8 @@ interface BOQPricingCardProps {
   paymentMode?: "stripe" | "manual_whatsapp" | "hybrid";
   manualPaymentRequested?: boolean;
   manualPaymentContact?: string | null;
+  manualPaymentUrl?: string | null;
+  manualPaymentDetails?: string | null;
 }
 
 export default function BOQPricingCard({
@@ -33,6 +35,8 @@ export default function BOQPricingCard({
   paymentMode = "stripe",
   manualPaymentRequested = false,
   manualPaymentContact,
+  manualPaymentUrl,
+  manualPaymentDetails,
 }: BOQPricingCardProps) {
   const { billCount, itemCount, tier, approxRangeLabel } = boqPreview;
   const hasFreeCredits = (creditsRemaining ?? 0) > 0;
@@ -127,6 +131,8 @@ export default function BOQPricingCard({
           requesting={paying}
           requested={manualPaymentRequested}
           contactLabel={manualPaymentContact}
+          whatsappUrl={manualPaymentUrl}
+          paymentDetails={manualPaymentDetails}
           onCardPayment={onCardPayment}
           cardEnabled={hasStripeOption}
           cardRequesting={paying}
