@@ -13,6 +13,10 @@ interface BOQRow {
   title: string;
   created_at: string;
   updated_at: string;
+  payment_status: "preview" | "paid";
+  processing_status: "pending" | "processing" | "failed" | "completed";
+  last_error?: string | null;
+  source_excel_key?: string | null;
   data: { bills?: Array<{ items?: Array<{ amount?: number | null; qty?: number | null; rate?: number | null }> }> };
 }
 
@@ -63,6 +67,11 @@ export default function DashboardPage() {
     router.push(`/boq/${id}`);
   }
 
+  async function handleResume(id: string) {
+    setOpening(id);
+    router.push(`/generating?boq_id=${id}`);
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("Delete this BOQ? This cannot be undone.")) return;
     setDeleting(id);
@@ -78,6 +87,16 @@ export default function DashboardPage() {
         return amt != null ? s + amt : s;
       }, 0);
     }, 0);
+  }
+
+  function statusBadge(boq: BOQRow) {
+    if (boq.processing_status === "completed") {
+      return <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Completed</span>;
+    }
+    if (boq.processing_status === "failed") {
+      return <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-300">Needs retry</span>;
+    }
+    return <span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">Processing</span>;
   }
 
   if (loading) {
@@ -156,7 +175,10 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-white truncate">{boq.title}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="font-medium text-white truncate">{boq.title}</p>
+                      {statusBadge(boq)}
+                    </div>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {new Date(boq.created_at).toLocaleDateString("en-ZM", {
                         day: "numeric",
@@ -169,16 +191,31 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </p>
+                    {boq.processing_status === "failed" && boq.last_error ? (
+                      <p className="mt-1 text-xs text-gray-500 truncate">
+                        {boq.last_error}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleOpen(boq.id)}
-                      disabled={opening === boq.id}
-                      className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-medium transition-colors disabled:opacity-60"
-                    >
-                      {opening === boq.id ? "Opening..." : "Open"}
-                    </button>
+                    {boq.processing_status === "completed" ? (
+                      <button
+                        onClick={() => handleOpen(boq.id)}
+                        disabled={opening === boq.id}
+                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-medium transition-colors disabled:opacity-60"
+                      >
+                        {opening === boq.id ? "Opening..." : "Open"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleResume(boq.id)}
+                        disabled={opening === boq.id}
+                        className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-semibold transition-colors disabled:opacity-60"
+                      >
+                        {opening === boq.id ? "Opening..." : "Resume"}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDelete(boq.id)}
                       disabled={deleting === boq.id}

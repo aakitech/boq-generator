@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     const { data: boqRow, error: fetchError } = await serviceClient
       .from("boqs")
-      .select("id, data, payment_status, user_id")
+      .select("id, data, payment_status, processing_status, user_id")
       .eq("id", boqId)
       .single();
 
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       if (boqRow.payment_status === "preview") {
         const { error: updateError } = await serviceClient
           .from("boqs")
-          .update({ payment_status: "paid", payment_source: null })
+          .update({ payment_status: "paid", payment_source: null, processing_status: "completed", last_error: null, processing_failed_at: null })
           .eq("id", boqId);
 
         if (updateError) {
@@ -129,7 +129,14 @@ export async function POST(req: NextRequest) {
     if (boqRow.payment_status === "preview") {
       const { error: updateError } = await serviceClient
         .from("boqs")
-        .update({ payment_status: "paid", stripe_session_id: session_id!, payment_source: "stripe" })
+        .update({
+          payment_status: "paid",
+          stripe_session_id: session_id!,
+          payment_source: "stripe",
+          processing_status: "completed",
+          last_error: null,
+          processing_failed_at: null,
+        })
         .eq("id", boqId);
 
       if (updateError) {

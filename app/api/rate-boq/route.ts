@@ -50,6 +50,9 @@ function classifyError(message: string): { status: number; safeMessage: string }
 }
 
 export async function POST(req: NextRequest) {
+  let failureBoqId: string | null = null;
+  let failureUserId: string | null = null;
+  let failureClient: ReturnType<typeof createServiceClient> | null = null;
   try {
     const { session_id, boq_id, use_credit, rate_context } = (await req.json()) as {
       session_id?: string;
@@ -70,6 +73,8 @@ export async function POST(req: NextRequest) {
     }
 
     const serviceClient = createServiceClient();
+    failureClient = serviceClient;
+    failureUserId = user.id;
     await ensureProfileExists(serviceClient, user);
 
     let stripeSessionId: string | null = null;
@@ -77,6 +82,7 @@ export async function POST(req: NextRequest) {
     let rateColHeader = "";
     let amountColHeader = "";
     let boqId = boq_id ?? null;
+    let effectiveRateContext: RateContext | undefined = rate_context;
 
     if (use_credit) {
       if (!boqId) {
@@ -85,7 +91,7 @@ export async function POST(req: NextRequest) {
 
       const { data: previewBoq, error: previewError } = await serviceClient
         .from("boqs")
-        .select("id, data, payment_status, user_id, source_excel_key, rate_col_header, amount_col_header")
+        .select("id, data, payment_status, processing_status, processing_context, user_id, source_excel_key, rate_col_header, amount_col_header")
         .eq("id", boqId)
         .single();
 
@@ -97,13 +103,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
-      if (previewBoq.payment_status === "paid") {
+      if (previewBoq.payment_status === "paid" && previewBoq.processing_status === "completed") {
         return NextResponse.json({ boq: previewBoq.data, boq_id: previewBoq.id });
       }
 
       storageKey = previewBoq.source_excel_key;
       rateColHeader = previewBoq.rate_col_header ?? "";
       amountColHeader = previewBoq.amount_col_header ?? "";
+      effectiveRateContext = rate_context ?? ((previewBoq.processing_context ?? undefined) as RateContext | undefined);
+      failureBoqId = boqId;
     } else {
       // Verify Stripe payment
       const stripeSession = await getStripe().checkout.sessions.retrieve(session_id!);
@@ -121,9 +129,21 @@ export async function POST(req: NextRequest) {
       rateColHeader = metadata.rate_col_header ?? "";
       amountColHeader = metadata.amount_col_header ?? "";
       boqId = metadata.boq_id ?? null;
+      failureBoqId = boqId;
 
       if (!storageKey) {
         return NextResponse.json({ error: "Missing storage key in payment session" }, { status: 400 });
+      }
+
+      if (boqId && !rate_context) {
+        const { data: storedBoq } = await serviceClient
+          .from("boqs")
+          .select("processing_context")
+          .eq("id", boqId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        effectiveRateContext = (storedBoq?.processing_context ?? undefined) as RateContext | undefined;
       }
     }
 
@@ -131,12 +151,34 @@ export async function POST(req: NextRequest) {
     if (stripeSessionId) {
       const { data: existingBoq } = await serviceClient
         .from("boqs")
-        .select("id, data")
+        .select("id, data, processing_status")
         .eq("stripe_session_id", stripeSessionId)
         .maybeSingle();
 
-      if (existingBoq) {
+      if (existingBoq?.processing_status === "completed") {
         return NextResponse.json({ boq: existingBoq.data, boq_id: existingBoq.id });
+      }
+    }
+
+    if (boqId) {
+      const { error: processingUpdateError } = await serviceClient
+        .from("boqs")
+        .update({
+          processing_status: "processing",
+          processing_started_at: new Date().toISOString(),
+          processing_failed_at: null,
+          last_error: null,
+          processing_context: effectiveRateContext ?? null,
+        })
+        .eq("id", boqId)
+        .eq("user_id", user.id);
+
+      if (processingUpdateError) {
+        logger.error("Failed to mark BOQ as processing before rate fill", {
+          boqId,
+          error: String(processingUpdateError),
+          route: "rate-boq",
+        });
       }
     }
 
@@ -160,7 +202,7 @@ export async function POST(req: NextRequest) {
       rateColumnHeader: rateColHeader || null,
       amountColumnHeader: amountColHeader || null,
     });
-    const boq = await fillMissingRatesInExistingBOQ(workbookBoq, rate_context);
+    const boq = await fillMissingRatesInExistingBOQ(workbookBoq, effectiveRateContext);
 
     const title = boq.project || "Rated BOQ";
     const itemCount = boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
@@ -202,6 +244,10 @@ export async function POST(req: NextRequest) {
           source_excel_key: storageKey,
           payment_status: "paid",
           payment_source: use_credit ? null : "stripe",
+          processing_status: "completed",
+          processing_failed_at: null,
+          last_error: null,
+          processing_context: effectiveRateContext ?? null,
           rate_col_header: rateColHeader || null,
           amount_col_header: amountColHeader || null,
         })
@@ -242,6 +288,8 @@ export async function POST(req: NextRequest) {
           amount_col_header: amountColHeader || null,
           payment_status: "paid",
           payment_source: stripeSessionId ? "stripe" : null,
+          processing_status: "completed",
+          processing_context: effectiveRateContext ?? null,
         })
         .select("id")
         .single();
@@ -264,6 +312,8 @@ export async function POST(req: NextRequest) {
             stripe_session_id: stripeSessionId,
             payment_status: "paid",
             payment_source: stripeSessionId ? "stripe" : null,
+            processing_status: "completed",
+            processing_context: effectiveRateContext ?? null,
           })
           .select("id")
           .single());
@@ -335,6 +385,25 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     logger.error("rate-boq error", { error: err instanceof Error ? err.message : String(err), route: "rate-boq" });
     const message = err instanceof Error ? err.message : "Unknown error";
+    if (failureClient && failureBoqId && failureUserId) {
+      const { error: failureUpdateError } = await failureClient
+        .from("boqs")
+        .update({
+          processing_status: "failed",
+          processing_failed_at: new Date().toISOString(),
+          last_error: message,
+        })
+        .eq("id", failureBoqId)
+        .eq("user_id", failureUserId);
+
+      if (failureUpdateError) {
+        logger.error("Failed to persist BOQ failure status", {
+          boqId: failureBoqId,
+          error: String(failureUpdateError),
+          route: "rate-boq",
+        });
+      }
+    }
     const classified = classifyError(message);
     return NextResponse.json({ error: classified.safeMessage }, { status: classified.status });
   }

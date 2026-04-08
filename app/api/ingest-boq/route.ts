@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
         title: file.name.replace(/\.[^/.]+$/, "") || "Untitled BOQ",
         data: workbookBoq,
         payment_status: "preview",
+        processing_status: "pending",
         source_excel_key: storageKey,
         rate_col_header: workbookPreservation?.rate_column_header ?? null,
         amount_col_header: workbookPreservation?.amount_column_header ?? null,

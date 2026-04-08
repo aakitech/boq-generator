@@ -10,6 +10,7 @@ function GeneratingContent() {
   const router = useRouter();
   const params = useSearchParams();
   const sessionId = params.get("session_id");
+  const resumeBoqId = params.get("boq_id");
   const ph = usePostHog();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(10);
@@ -18,6 +19,13 @@ function GeneratingContent() {
   const [isCheckingSavedBoq, setIsCheckingSavedBoq] = useState(false);
   const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
   const started = useRef(false);
+
+  type RecoveryState = {
+    boq_id: string | null;
+    payment_status: string | null;
+    processing_status: string | null;
+    last_error: string | null;
+  };
 
   useEffect(() => {
     async function loadCredits() {
@@ -30,12 +38,12 @@ function GeneratingContent() {
     void loadCredits();
   }, []);
 
-  async function recoverCompletedBoq(currentSessionId: string): Promise<string | null> {
+  async function recoverBySession(currentSessionId: string): Promise<RecoveryState | null> {
     try {
       const res = await fetch(`/api/boqs/by-session?session_id=${encodeURIComponent(currentSessionId)}`);
       if (!res.ok) return null;
-      const body = (await res.json()) as { boq_id?: string | null };
-      return body.boq_id ?? null;
+      const body = (await res.json()) as RecoveryState;
+      return body;
     } catch {
       return null;
     }
@@ -44,24 +52,29 @@ function GeneratingContent() {
   async function waitForCompletedBoq(
     currentSessionId: string,
     options?: { attempts?: number; delayMs?: number }
-  ): Promise<string | null> {
+  ): Promise<RecoveryState | null> {
     const attempts = options?.attempts ?? 30;
     const delayMs = options?.delayMs ?? 2000;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const boqId = await recoverCompletedBoq(currentSessionId);
-      if (boqId) return boqId;
+      const state = await recoverBySession(currentSessionId);
+      if (state?.boq_id && state.processing_status === "completed") return state;
+      if (state?.boq_id && state.processing_status === "failed") return state;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     return null;
   }
 
   async function checkAgainForSavedBoq() {
+    if (resumeBoqId) {
+      router.replace(`/generating?boq_id=${resumeBoqId}`);
+      return;
+    }
     if (!sessionId) return;
     setIsCheckingSavedBoq(true);
     setStatusText("Checking again for a completed BOQ...");
-    const recoveredBoqId = await waitForCompletedBoq(sessionId, { attempts: 10, delayMs: 2000 });
-    if (recoveredBoqId) {
-      router.push(`/boq/${recoveredBoqId}`);
+    const recovered = await waitForCompletedBoq(sessionId, { attempts: 10, delayMs: 2000 });
+    if (recovered?.boq_id && recovered.processing_status === "completed") {
+      router.push(`/boq/${recovered.boq_id}`);
       return;
     }
     setStatusText("Generation stopped due to an error.");
@@ -72,18 +85,22 @@ function GeneratingContent() {
     started.current = true;
 
     async function unlock() {
-      if (!sessionId) {
+      if (!sessionId && !resumeBoqId) {
         setError("Missing payment session. Please start over.");
         return;
       }
 
-      const alreadySavedBoqId = await recoverCompletedBoq(sessionId);
-      if (alreadySavedBoqId) {
-        router.push(`/boq/${alreadySavedBoqId}`);
-        return;
+      if (resumeBoqId) {
+        setIsRateBoq(true);
+      } else {
+        const recovered = await recoverBySession(sessionId!);
+        if (recovered?.boq_id && recovered.processing_status === "completed") {
+          router.push(`/boq/${recovered.boq_id}`);
+          return;
+        }
       }
 
-      const boqType = localStorage.getItem("boq_type") ?? "generate";
+      const boqType = resumeBoqId ? "rate_boq" : (localStorage.getItem("boq_type") ?? "generate");
       const isRateBoqValue = boqType === "rate_boq";
       setIsRateBoq(isRateBoqValue);
 
@@ -119,7 +136,13 @@ function GeneratingContent() {
 
         let res: Response;
 
-        if (isRateBoqValue) {
+        if (resumeBoqId) {
+          setStatusText("Resuming your paid BOQ and filling in rates...");
+          res = await fetch(`/api/boqs/${resumeBoqId}/resume`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+        } else if (isRateBoqValue) {
           setStatusText("AI is parsing your BOQ and filling in rates...");
           const rateContextRaw = localStorage.getItem("boq_rate_context");
           const rateContext = rateContextRaw ? JSON.parse(rateContextRaw) : undefined;
@@ -154,7 +177,7 @@ function GeneratingContent() {
           if (res.status === 429)
             throw new Error("AI quota exceeded. Please try again in a minute.");
           if (res.status === 503)
-            throw new Error("AI service is temporarily busy. Please wait a moment and try again.");
+            throw new Error("AI service is temporarily busy. Your payment is still attached to this BOQ, and you can resume it from the dashboard without paying again.");
       if (res.status === 504 || !e)
         throw new Error(
           "This is taking longer than expected. We are checking whether your BOQ finished in the background."
@@ -200,16 +223,16 @@ function GeneratingContent() {
         const msg = err instanceof Error ? err.message : "Something went wrong";
         setIsCheckingSavedBoq(true);
         setStatusText("Checking whether your BOQ finished in the background...");
-        const recoveredBoqId = sessionId ? await waitForCompletedBoq(sessionId) : null;
-        if (recoveredBoqId) {
-          router.push(`/boq/${recoveredBoqId}`);
+        const recovered = sessionId ? await waitForCompletedBoq(sessionId) : null;
+        if (recovered?.boq_id && recovered.processing_status === "completed") {
+          router.push(`/boq/${recovered.boq_id}`);
           return;
         }
         setStatusText("Generation stopped due to an error.");
         setIsCheckingSavedBoq(false);
         setError(
           msg === "Failed to fetch"
-            ? "The connection dropped while the BOQ was generating. We kept checking for a completed result but did not find one yet."
+            ? "The connection dropped while the BOQ was generating. Your payment is still attached to this BOQ, and you can resume it later from the dashboard."
             : msg
         );
       } finally {
@@ -218,7 +241,7 @@ function GeneratingContent() {
     }
 
     unlock();
-  }, [sessionId, router]);
+  }, [resumeBoqId, sessionId, router]);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16">
@@ -258,7 +281,7 @@ function GeneratingContent() {
               <p className="text-gray-400 text-sm leading-relaxed">{error}</p>
             </div>
             <div className="flex items-center justify-center gap-3">
-              {sessionId ? (
+              {sessionId || resumeBoqId ? (
                 <button
                   type="button"
                   onClick={checkAgainForSavedBoq}
@@ -269,12 +292,15 @@ function GeneratingContent() {
                 </button>
               ) : null}
               <a
-                href="/"
+                href="/dashboard"
                 className="inline-block px-6 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors"
               >
-                Start Over
+                Go to dashboard
               </a>
             </div>
+            <p className="text-xs text-gray-500">
+              Your payment stays attached to this BOQ. You can resume from the dashboard without paying again.
+            </p>
           </div>
         ) : (
           <div className="space-y-8">

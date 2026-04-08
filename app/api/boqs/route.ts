@@ -15,7 +15,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("boqs")
-    .select("id, title, created_at, updated_at, data")
+    .select("id, title, created_at, updated_at, data, payment_status, processing_status, last_error, source_excel_key")
     .eq("payment_status", "paid")
     .order("created_at", { ascending: false });
 

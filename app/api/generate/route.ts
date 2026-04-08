@@ -162,6 +162,7 @@ export async function POST(req: NextRequest) {
         title,
         data: boq,
         payment_status: "preview",
+        processing_status: "completed",
         grand_total_zmw: pricing.grandTotalZmw,
       })
       .select("id")
