@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       if (boqRow.payment_status === "preview") {
         const { error: updateError } = await serviceClient
           .from("boqs")
-          .update({ payment_status: "paid" })
+          .update({ payment_status: "paid", payment_source: null })
           .eq("id", boqId);
 
         if (updateError) {
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
     if (boqRow.payment_status === "preview") {
       const { error: updateError } = await serviceClient
         .from("boqs")
-        .update({ payment_status: "paid", stripe_session_id: session_id! })
+        .update({ payment_status: "paid", stripe_session_id: session_id!, payment_source: "stripe" })
         .eq("id", boqId);
 
       if (updateError) {

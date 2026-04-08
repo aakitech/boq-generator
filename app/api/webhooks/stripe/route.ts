@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       // New flow: mark the preview BOQ as paid
       const { error: updateError } = await supabase
         .from("boqs")
-        .update({ payment_status: "paid", stripe_session_id: session.id })
+        .update({ payment_status: "paid", stripe_session_id: session.id, payment_source: "stripe" })
         .eq("id", boqId)
         .eq("payment_status", "preview"); // idempotent — only update if still preview
 

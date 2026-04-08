@@ -201,6 +201,7 @@ export async function POST(req: NextRequest) {
           stripe_session_id: stripeSessionId,
           source_excel_key: storageKey,
           payment_status: "paid",
+          payment_source: use_credit ? null : "stripe",
           rate_col_header: rateColHeader || null,
           amount_col_header: amountColHeader || null,
         })
@@ -240,6 +241,7 @@ export async function POST(req: NextRequest) {
           rate_col_header: rateColHeader || null,
           amount_col_header: amountColHeader || null,
           payment_status: "paid",
+          payment_source: stripeSessionId ? "stripe" : null,
         })
         .select("id")
         .single();
@@ -261,6 +263,7 @@ export async function POST(req: NextRequest) {
             data: boq,
             stripe_session_id: stripeSessionId,
             payment_status: "paid",
+            payment_source: stripeSessionId ? "stripe" : null,
           })
           .select("id")
           .single());
