@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
@@ -14,11 +14,15 @@ interface BOQRow {
   created_at: string;
   updated_at: string;
   payment_status: "preview" | "paid";
+  payment_source?: "stripe" | "manual_whatsapp" | null;
+  manual_payment_requested_at?: string | null;
   processing_status: "pending" | "processing" | "failed" | "completed";
   last_error?: string | null;
   source_excel_key?: string | null;
   data: { bills?: Array<{ items?: Array<{ amount?: number | null; qty?: number | null; rate?: number | null }> }> };
 }
+
+type DashboardFilter = "all" | "awaiting_approval" | "processing" | "needs_retry" | "completed";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -30,6 +34,7 @@ export default function DashboardPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<DashboardFilter>("all");
 
   useEffect(() => {
     async function load() {
@@ -39,21 +44,33 @@ export default function DashboardPage() {
       setUser(user);
       ph.identify(user.id, { email: user.email });
 
-      const res = await fetch("/api/boqs");
-      if (res.ok) {
-        const { boqs } = await res.json();
-        setBOQs(boqs || []);
-      }
-
       const creditRes = await fetch("/api/credits");
       if (creditRes.ok) {
         const { remainingCredits } = await creditRes.json();
         setRemainingCredits(remainingCredits ?? 0);
       }
+      const res = await fetch("/api/boqs");
+      if (res.ok) {
+        const { boqs } = await res.json();
+        setBOQs(boqs || []);
+      }
       setLoading(false);
     }
     load();
-  }, [router]);
+  }, [ph, router]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = window.setInterval(async () => {
+      const res = await fetch("/api/boqs", { cache: "no-store" });
+      if (!res.ok) return;
+      const { boqs } = await res.json();
+      setBOQs(boqs || []);
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [user]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -70,6 +87,14 @@ export default function DashboardPage() {
   async function handleResume(id: string) {
     setOpening(id);
     router.push(`/generating?boq_id=${id}`);
+  }
+
+  function isAwaitingManualApproval(boq: BOQRow) {
+    return (
+      boq.payment_status === "preview" &&
+      boq.payment_source === "manual_whatsapp" &&
+      Boolean(boq.manual_payment_requested_at)
+    );
   }
 
   async function handleDelete(id: string) {
@@ -90,6 +115,9 @@ export default function DashboardPage() {
   }
 
   function statusBadge(boq: BOQRow) {
+    if (isAwaitingManualApproval(boq)) {
+      return <span className="inline-flex rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">Awaiting approval</span>;
+    }
     if (boq.processing_status === "completed") {
       return <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Completed</span>;
     }
@@ -97,6 +125,34 @@ export default function DashboardPage() {
       return <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-300">Needs retry</span>;
     }
     return <span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">Processing</span>;
+  }
+
+  function matchesFilter(boq: BOQRow) {
+    if (activeFilter === "all") return true;
+    if (activeFilter === "awaiting_approval") return isAwaitingManualApproval(boq);
+    if (activeFilter === "completed") return boq.processing_status === "completed" && !isAwaitingManualApproval(boq);
+    if (activeFilter === "needs_retry") return boq.processing_status === "failed";
+    return boq.processing_status === "pending" || boq.processing_status === "processing";
+  }
+
+  const filteredBoqs = useMemo(() => boqs.filter(matchesFilter), [activeFilter, boqs]);
+
+  const filterOptions: Array<{ key: DashboardFilter; label: string }> = [
+    { key: "all", label: "All" },
+    { key: "awaiting_approval", label: "Awaiting Approval" },
+    { key: "processing", label: "Processing" },
+    { key: "needs_retry", label: "Needs Retry" },
+    { key: "completed", label: "Completed" },
+  ];
+
+  function filterCount(filter: DashboardFilter) {
+    return boqs.filter((boq) => {
+      if (filter === "all") return true;
+      if (filter === "awaiting_approval") return isAwaitingManualApproval(boq);
+      if (filter === "completed") return boq.processing_status === "completed" && !isAwaitingManualApproval(boq);
+      if (filter === "needs_retry") return boq.processing_status === "failed";
+      return boq.processing_status === "pending" || boq.processing_status === "processing";
+    }).length;
   }
 
   if (loading) {
@@ -137,7 +193,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Your BOQs</h1>
             <p className="text-gray-500 text-sm mt-1">
-              {boqs.length === 0 ? "No BOQs yet" : `${boqs.length} BOQ${boqs.length !== 1 ? "s" : ""}`}
+              {filteredBoqs.length === 0 ? "No BOQs in this view" : `${filteredBoqs.length} BOQ${filteredBoqs.length !== 1 ? "s" : ""}`}
             </p>
           </div>
           <a
@@ -146,6 +202,29 @@ export default function DashboardPage() {
           >
             + New BOQ
           </a>
+        </div>
+
+        <div className="mb-6 flex flex-wrap gap-2">
+          {filterOptions.map((filter) => (
+            <button
+              key={filter.key}
+              onClick={() => setActiveFilter(filter.key)}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeFilter === filter.key
+                  ? "bg-amber-400 text-black"
+                  : "bg-white/[0.04] text-gray-300 hover:bg-white/[0.08]"
+              }`}
+            >
+              <span>{filter.label}</span>
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                  activeFilter === filter.key ? "bg-black/10 text-black" : "bg-white/10 text-gray-400"
+                }`}
+              >
+                {filterCount(filter.key)}
+              </span>
+            </button>
+          ))}
         </div>
 
         {boqs.length === 0 ? (
@@ -161,9 +240,13 @@ export default function DashboardPage() {
               Generate your first BOQ →
             </a>
           </div>
+        ) : filteredBoqs.length === 0 ? (
+          <div className="text-center py-20 rounded-xl border border-white/10 bg-white/[0.02]">
+            <p className="text-sm text-gray-400">No BOQs match this filter right now.</p>
+          </div>
         ) : (
           <div className="space-y-3">
-            {boqs.map((boq) => {
+            {filteredBoqs.map((boq) => {
               const total = grandTotal(boq);
               return (
                 <div
@@ -191,6 +274,11 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </p>
+                    {isAwaitingManualApproval(boq) ? (
+                      <p className="mt-1 text-xs text-gray-400">
+                        Manual payment requested. Your BOQ will unlock once the team confirms payment.
+                      </p>
+                    ) : null}
                     {boq.processing_status === "failed" && boq.last_error ? (
                       <p className="mt-1 text-xs text-gray-500 truncate">
                         {boq.last_error}
@@ -199,7 +287,14 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    {boq.processing_status === "completed" ? (
+                    {isAwaitingManualApproval(boq) ? (
+                      <button
+                        disabled
+                        className="px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 text-xs font-medium cursor-not-allowed"
+                      >
+                        Awaiting approval
+                      </button>
+                    ) : boq.processing_status === "completed" ? (
                       <button
                         onClick={() => handleOpen(boq.id)}
                         disabled={opening === boq.id}
