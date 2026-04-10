@@ -7,6 +7,7 @@ import type { User } from "@supabase/supabase-js";
 import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
+import { getManualPaymentAdminConfig } from "@/lib/auth/manual-payment-admin";
 
 interface BOQRow {
   id: string;
@@ -25,6 +26,7 @@ interface BOQRow {
 type DashboardFilter = "all" | "awaiting_payment" | "processing" | "needs_retry" | "completed";
 
 export default function DashboardPage() {
+  const adminConfig = getManualPaymentAdminConfig();
   const router = useRouter();
   const ph = usePostHog();
   const [user, setUser] = useState<User | null>(null);
@@ -35,6 +37,10 @@ export default function DashboardPage() {
   const [opening, setOpening] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>("all");
+
+  const isManualPaymentAdmin = Boolean(
+    user?.email && adminConfig.allowedEmails.includes(user.email.trim().toLowerCase())
+  );
 
   useEffect(() => {
     async function load() {
@@ -196,12 +202,22 @@ export default function DashboardPage() {
               {filteredBoqs.length === 0 ? "No BOQs in this view" : `${filteredBoqs.length} BOQ${filteredBoqs.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          <a
-            href="/upload"
-            className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors"
-          >
-            + New BOQ
-          </a>
+          <div className="flex items-center gap-3">
+            {isManualPaymentAdmin ? (
+              <a
+                href="/admin/manual-payments"
+                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors"
+              >
+                Manual Payments
+              </a>
+            ) : null}
+            <a
+              href="/upload"
+              className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors"
+            >
+              + New BOQ
+            </a>
+          </div>
         </div>
 
         <div className="mb-6 flex flex-wrap gap-2">
