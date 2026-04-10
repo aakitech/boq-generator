@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BOQDocument } from "@/lib/types";
+import CreditBadge from "@/components/CreditBadge";
 
 function countItems(boq: BOQDocument): number {
   return boq.bills.reduce((sum, bill) => sum + bill.items.filter((item) => !item.is_header).length, 0);
@@ -24,6 +25,7 @@ function totalAmount(boq: BOQDocument): number {
 export default function BOQPreviewPage() {
   const router = useRouter();
   const [boq, setBoq] = useState<BOQDocument | null>(null);
+  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
 
   useEffect(() => {
     const raw =
@@ -45,6 +47,17 @@ export default function BOQPreviewPage() {
     }
   }, [router]);
 
+  useEffect(() => {
+    async function loadCredits() {
+      const res = await fetch("/api/credits");
+      if (!res.ok) return;
+      const body = (await res.json()) as { remainingCredits?: number };
+      setRemainingCredits(body.remainingCredits ?? 0);
+    }
+
+    void loadCredits();
+  }, []);
+
   const itemCount = useMemo(() => (boq ? countItems(boq) : 0), [boq]);
   const grandTotal = useMemo(() => (boq ? totalAmount(boq) : 0), [boq]);
 
@@ -58,6 +71,13 @@ export default function BOQPreviewPage() {
 
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white px-4 py-8">
+      <div className="max-w-5xl mx-auto mb-6 flex items-center justify-between gap-4">
+        <a href="/">
+          <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+        </a>
+        {remainingCredits !== null ? <CreditBadge remainingCredits={remainingCredits} /> : null}
+      </div>
+
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
           <h1 className="text-xl font-semibold">Generated BOQ preview</h1>

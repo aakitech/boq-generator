@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
 import type { BOQDocumentType, RequiredAttachment, SourceBundleStatus } from "@/lib/types";
 import BOQPricingCard from "@/components/BOQPricingCard";
+import CreditBadge from "@/components/CreditBadge";
+import ManualPaymentOptions from "@/components/ManualPaymentOptions";
 
 type Tab = "generate" | "rate";
 type Stage = "idle" | "extracting" | "ready" | "generating" | "preview" | "paying" | "error";
@@ -25,9 +28,77 @@ type SupportingUpload = {
   error?: string | null;
 };
 
+const PAYMENT_MODE =
+  process.env.NEXT_PUBLIC_PAYMENT_PROVIDER === "manual_whatsapp"
+    ? process.env.NODE_ENV === "production"
+      ? "manual_whatsapp"
+      : "hybrid"
+    : "stripe";
+
+function openPendingExternalWindow() {
+  const popup = window.open("about:blank", "_blank");
+  if (popup) {
+    popup.opener = null;
+  }
+  return popup;
+}
+
+function resolveExternalWindow(popup: Window | null, url: string) {
+  if (popup) {
+    popup.location.href = url;
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function closePendingExternalWindow(popup: Window | null) {
+  if (popup && !popup.closed) {
+    popup.close();
+  }
+}
+
+function clearGenerationDraftStorage() {
+  localStorage.removeItem("boq_text");
+  localStorage.removeItem("boq_document_bundle");
+  localStorage.removeItem("boq_suggest_rates");
+  localStorage.removeItem("boq_is_sow");
+  localStorage.removeItem("boq_sow_warning");
+  localStorage.removeItem("boq_sow_confidence");
+  localStorage.removeItem("boq_document_type");
+  localStorage.removeItem("boq_should_block_generation");
+  localStorage.removeItem("boq_positive_signals");
+  localStorage.removeItem("boq_negative_signals");
+  localStorage.removeItem("boq_sow_flags");
+  localStorage.removeItem("boq_required_attachments");
+  localStorage.removeItem("boq_source_bundle_status");
+}
+
+function useFreeBoqCredits() {
+  const [remainingCredits, setRemainingCredits] = useState(0);
+  const [loadingCredits, setLoadingCredits] = useState(true);
+
+  async function refreshCredits() {
+    try {
+      const res = await fetch("/api/credits");
+      if (!res.ok) return;
+      const body = (await res.json()) as { remainingCredits?: number };
+      setRemainingCredits(body.remainingCredits ?? 0);
+    } finally {
+      setLoadingCredits(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshCredits();
+  }, []);
+
+  return { remainingCredits, loadingCredits, refreshCredits, setRemainingCredits };
+}
+
 // ─── Generate BOQ Tab ────────────────────────────────────────────────────────
 
 function GenerateBOQTab() {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [file, setFile] = useState<File | null>(null);
@@ -58,7 +129,12 @@ function GenerateBOQTab() {
   const [supportingUploads, setSupportingUploads] = useState<SupportingUpload[]>([]);
   const [primaryDoc, setPrimaryDoc] = useState<ExtractedDoc | null>(null);
   const [bundleDocs, setBundleDocs] = useState<ExtractedDoc[]>([]);
+  const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
+  const [manualPaymentContact, setManualPaymentContact] = useState<string | null>(null);
+  const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
+  const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
   const ph = usePostHog();
+  const { remainingCredits, refreshCredits, setRemainingCredits } = useFreeBoqCredits();
   const attachedSupportingCount = supportingUploads.filter((upload) => upload.file).length;
   const processedSupportingCount = supportingUploads.filter((upload) => upload.processedDoc).length;
   const hasAllRequiredAttachments =
@@ -76,7 +152,10 @@ function GenerateBOQTab() {
       hasProcessedAllRequiredAttachments
   );
   const primaryActionLabel = useMemo(() => {
-    if (stage === "paying") return "Opening secure checkout...";
+    if (stage === "paying") {
+      if (remainingCredits > 0) return "Unlocking with credits...";
+      return PAYMENT_MODE !== "stripe" ? "Opening WhatsApp..." : "Opening secure checkout...";
+    }
     if (stage === "generating") return "Generating your BOQ...";
     if (classification?.shouldBlockGeneration && hasAllRequiredAttachments && !hasProcessedAllRequiredAttachments) {
       return "Processing attachments...";
@@ -87,7 +166,7 @@ function GenerateBOQTab() {
         : "Add required attachments to continue";
     }
     return "Generate BOQ →";
-  }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, stage]);
+  }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, remainingCredits, stage]);
 
   function handleFile(f: File) {
     const name = f.name.toLowerCase();
@@ -105,6 +184,10 @@ function GenerateBOQTab() {
     setSupportingUploads([]);
     setPrimaryDoc(null);
     setBundleDocs([]);
+    setManualPaymentRequested(false);
+    setManualPaymentContact(null);
+    setManualPaymentUrl(null);
+    setManualPaymentDetails(null);
   }
 
   async function extractSingleDocument(
@@ -328,6 +411,10 @@ function GenerateBOQTab() {
     }
     localStorage.setItem("boq_suggest_rates", suggestRates ? "1" : "0");
     localStorage.setItem("boq_type", "generate");
+    setManualPaymentRequested(false);
+    setManualPaymentContact(null);
+    setManualPaymentUrl(null);
+    setManualPaymentDetails(null);
     ph.capture("generate_initiated", {
       suggest_rates: suggestRates,
       supporting_docs_count: attachedSupportingCount,
@@ -370,8 +457,83 @@ function GenerateBOQTab() {
 
   async function handleCheckout() {
     if (!boqId) return;
+    if (remainingCredits > 0) {
+      setStage("paying");
+      setError(null);
+
+      try {
+        const res = await fetch("/api/unlock-boq", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ boq_id: boqId, use_credit: true }),
+        });
+
+        if (!res.ok) {
+          const body = (await res.json()) as { error?: string; remainingCredits?: number };
+          if (typeof body.remainingCredits === "number") {
+            setRemainingCredits(body.remainingCredits);
+          } else {
+            await refreshCredits();
+          }
+          throw new Error(body.error || "Could not unlock BOQ with credits");
+        }
+
+        const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
+        if (typeof body.remainingCredits === "number") {
+          setRemainingCredits(body.remainingCredits);
+        } else {
+          await refreshCredits();
+        }
+
+        clearGenerationDraftStorage();
+        router.push(body.boq_id ? `/boq/${body.boq_id}` : "/boq");
+        return;
+      } catch (err) {
+        setStage("preview");
+        const msg = err instanceof Error ? err.message : "Something went wrong";
+        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
+        return;
+      }
+    }
+
     setStage("paying");
     setError(null);
+
+    if (PAYMENT_MODE !== "stripe") {
+      const pendingWindow = openPendingExternalWindow();
+      try {
+        const res = await fetch("/api/manual-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ boq_id: boqId, type: "generate_boq" }),
+        });
+        const body = (await res.json()) as {
+          error?: string;
+          whatsappUrl?: string;
+          contact?: string;
+          paymentDetails?: string;
+        };
+        if (!res.ok || !body.whatsappUrl) {
+          throw new Error(body.error || "Could not start manual payment");
+        }
+
+        setManualPaymentRequested(true);
+        setManualPaymentContact(body.contact ?? null);
+        setManualPaymentUrl(body.whatsappUrl);
+        setManualPaymentDetails(body.paymentDetails ?? null);
+        ph.capture("manual_payment_requested", { type: "generate_boq", boqId });
+        resolveExternalWindow(pendingWindow, body.whatsappUrl);
+        setStage("preview");
+        return;
+      } catch (err) {
+        closePendingExternalWindow(pendingWindow);
+        setStage("preview");
+        const msg = err instanceof Error ? err.message : "Something went wrong";
+        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
+        return;
+      }
+    }
+
     ph.capture("payment_initiated", { type: "generate_boq", boqId });
 
     try {
@@ -395,12 +557,41 @@ function GenerateBOQTab() {
 
   const isProcessing = stage === "extracting" || stage === "generating" || stage === "paying";
 
-  if (stage === "preview" && boqPreview) {
+  if ((stage === "preview" || stage === "paying") && boqPreview) {
     return (
       <BOQPricingCard
         boqPreview={boqPreview}
         onUnlock={handleCheckout}
-        paying={false}
+        onCardPayment={async () => {
+          if (!boqId) return;
+          setStage("paying");
+          setError(null);
+          ph.capture("payment_initiated", { type: "generate_boq", boqId, mode: "stripe_test" });
+          try {
+            const res = await fetch("/api/checkout", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ boq_id: boqId, type: "generate_boq" }),
+            });
+            if (!res.ok) {
+              const { error: e } = await res.json();
+              throw new Error(e || "Could not create payment session");
+            }
+            const { url } = await res.json();
+            window.location.href = url;
+          } catch (err) {
+            setStage("preview");
+            const msg = err instanceof Error ? err.message : "Something went wrong";
+            setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
+          }
+        }}
+        paying={stage === "paying"}
+        creditsRemaining={remainingCredits}
+        paymentMode={PAYMENT_MODE}
+        manualPaymentRequested={manualPaymentRequested}
+        manualPaymentContact={manualPaymentContact}
+        manualPaymentUrl={manualPaymentUrl}
+        manualPaymentDetails={manualPaymentDetails}
       />
     );
   }
@@ -583,22 +774,36 @@ function GenerateBOQTab() {
           </button>
         </div>
 
+        {remainingCredits > 0 ? (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Starter credits available</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  This rate fill will use credits based on actual AI usage before paid options are needed.
+                </p>
+              </div>
+              <CreditBadge remainingCredits={remainingCredits} />
+            </div>
+          </div>
+        ) : null}
+
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 text-left space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-white font-semibold text-lg">BOQ Generation</p>
-              <p className="text-gray-400 text-sm mt-0.5">One-time · priced by project size</p>
+              <p className="text-gray-400 text-sm mt-0.5">Start with credits, then pay based on project size</p>
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">USD · based on BOQ value</p>
+              <p className="text-xs text-gray-500">1,000 starter credits for new accounts</p>
             </div>
           </div>
           <ul className="space-y-2">
             {[
               "Structured BOQ with bill sections",
-              "Editable table — adjust quantities & descriptions",
-              "Download .xlsx in Zambian tender format (ZMW)",
+              "Editable table - adjust quantities and descriptions",
+              "Download .xlsx in Southern African tender format",
             ].map((item) => (
               <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
                 <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -777,6 +982,7 @@ const DEFAULT_CONTEXT: RateContext = {
 };
 
 function RateBOQTab() {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<RateStage>("idle");
@@ -788,7 +994,12 @@ function RateBOQTab() {
   const [rateAmountCents, setRateAmountCents] = useState<number>(3000);
   const [ctx, setCtx] = useState<RateContext>(DEFAULT_CONTEXT);
   const [customMargin, setCustomMargin] = useState(false);
+  const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
+  const [manualPaymentContact, setManualPaymentContact] = useState<string | null>(null);
+  const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
+  const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
   const ph = usePostHog();
+  const { remainingCredits, refreshCredits, setRemainingCredits } = useFreeBoqCredits();
 
   function handleFile(f: File) {
     const name = f.name.toLowerCase();
@@ -801,6 +1012,10 @@ function RateBOQTab() {
     setError(null);
     setStorageKey(null);
     setPreview(null);
+    setManualPaymentRequested(false);
+    setManualPaymentContact(null);
+    setManualPaymentUrl(null);
+    setManualPaymentDetails(null);
   }
 
   async function handleValidate() {
@@ -843,9 +1058,89 @@ function RateBOQTab() {
     if (!preview) return;
     localStorage.setItem("boq_type", "rate_boq");
     localStorage.setItem("boq_rate_context", JSON.stringify(ctx));
-    ph.capture("payment_initiated", { type: "rate_boq", province: ctx.province, boqId: rateBoqId });
     setStage("paying");
     setError(null);
+
+    if (remainingCredits > 0 && rateBoqId) {
+      try {
+        const res = await fetch("/api/rate-boq", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            boq_id: rateBoqId,
+            use_credit: true,
+            rate_context: ctx,
+          }),
+        });
+        if (!res.ok) {
+          const body = (await res.json()) as { error?: string; remainingCredits?: number };
+          if (typeof body.remainingCredits === "number") {
+            setRemainingCredits(body.remainingCredits);
+          } else {
+            await refreshCredits();
+          }
+          throw new Error(body.error || "Could not rate BOQ with credits");
+        }
+        const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
+        if (typeof body.remainingCredits === "number") {
+          setRemainingCredits(body.remainingCredits);
+        } else {
+          await refreshCredits();
+        }
+        localStorage.removeItem("boq_type");
+        localStorage.removeItem("boq_rate_context");
+        router.push(body.boq_id ? `/boq/${body.boq_id}` : "/boq");
+        return;
+      } catch (err) {
+        setStage("ready");
+        const msg = err instanceof Error ? err.message : "Something went wrong";
+        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
+        return;
+      }
+    }
+
+    if (PAYMENT_MODE !== "stripe") {
+      if (!rateBoqId) {
+        setStage("ready");
+        setError("Manual payment needs a saved preview BOQ. Please upload the file again.");
+        return;
+      }
+
+      const pendingWindow = openPendingExternalWindow();
+      try {
+        const res = await fetch("/api/manual-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ boq_id: rateBoqId, type: "rate_boq" }),
+        });
+        const body = (await res.json()) as {
+          error?: string;
+          whatsappUrl?: string;
+          contact?: string;
+          paymentDetails?: string;
+        };
+        if (!res.ok || !body.whatsappUrl) {
+          throw new Error(body.error || "Could not start manual payment");
+        }
+
+        setManualPaymentRequested(true);
+        setManualPaymentContact(body.contact ?? null);
+        setManualPaymentUrl(body.whatsappUrl);
+        setManualPaymentDetails(body.paymentDetails ?? null);
+        ph.capture("manual_payment_requested", { type: "rate_boq", province: ctx.province, boqId: rateBoqId });
+        resolveExternalWindow(pendingWindow, body.whatsappUrl);
+        setStage("ready");
+        return;
+      } catch (err) {
+        closePendingExternalWindow(pendingWindow);
+        setStage("ready");
+        const msg = err instanceof Error ? err.message : "Something went wrong";
+        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
+        return;
+      }
+    }
+
+    ph.capture("payment_initiated", { type: "rate_boq", province: ctx.province, boqId: rateBoqId });
 
     try {
       const checkoutBody = rateBoqId
@@ -1031,13 +1326,12 @@ function RateBOQTab() {
         <button
           onClick={handleQuestionsSubmit}
           className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors">
-          Continue to payment →
+          Continue to unlock options -&gt;
         </button>
       </div>
     );
   }
 
-  // ── Payment screen ──────────────────────────────────────────────────────────
   if (stage === "ready" || stage === "paying") {
     return (
       <div className="text-center space-y-6">
@@ -1047,7 +1341,7 @@ function RateBOQTab() {
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
-            {preview?.totalItems} items · {preview?.missingRateCount} missing rates · {ctx.province} · {ctx.marginPct}% margin
+            {preview?.totalItems} items - {preview?.missingRateCount} missing rates - {ctx.province} - {ctx.marginPct}% margin
           </div>
         </div>
 
@@ -1062,15 +1356,39 @@ function RateBOQTab() {
           </button>
         </div>
 
+        {remainingCredits > 0 ? (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Starter credits available</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  This rate fill will use credits based on actual AI usage before paid options are needed.
+                </p>
+              </div>
+              <CreditBadge remainingCredits={remainingCredits} />
+            </div>
+          </div>
+        ) : null}
+
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 text-left space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-white font-semibold text-lg">BOQ Rate Filling</p>
-              <p className="text-gray-400 text-sm mt-0.5">One-time · instant delivery</p>
+              <p className="text-gray-400 text-sm mt-0.5">
+                {remainingCredits > 0
+                  ? "Use starter credits now"
+                  : PAYMENT_MODE !== "stripe"
+                    ? "Request manual payment and wait for approval"
+                    : "One-time instant delivery"}
+              </p>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold text-amber-400">${(rateAmountCents / 100).toFixed(0)}</p>
-              <p className="text-xs text-gray-500">USD</p>
+              <p className="text-2xl font-bold text-amber-400">
+                {remainingCredits > 0 ? "Credits" : `$${(rateAmountCents / 100).toFixed(0)}`}
+              </p>
+              <p className="text-xs text-gray-500">
+                {remainingCredits > 0 ? `${remainingCredits.toLocaleString()} credits left` : "USD"}
+              </p>
             </div>
           </div>
           <ul className="space-y-2">
@@ -1078,7 +1396,7 @@ function RateBOQTab() {
               `AI fills rates for ${preview?.missingRateCount} items calibrated to ${ctx.province} conditions`,
               "Download your original Excel file with rates added in-place",
               "Or download a freshly formatted BOQ in our house style",
-              "Editable in the BOQ editor — review and adjust before exporting",
+              "Editable in the BOQ editor - review and adjust before exporting",
             ].map((item) => (
               <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
                 <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -1090,33 +1408,90 @@ function RateBOQTab() {
           </ul>
         </div>
 
-        <button
-          className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-          onClick={handleCheckout} disabled={stage === "paying"}>
-          {stage === "paying" ? (
-            <><span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />Opening secure checkout...</>
-          ) : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates →`}
-        </button>
+        {remainingCredits > 0 || PAYMENT_MODE === "stripe" ? (
+          <button
+            className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            onClick={handleCheckout} disabled={stage === "paying"}>
+            {stage === "paying" ? (
+              <>
+                <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
+                {remainingCredits > 0 ? "Unlocking with credits..." : "Opening secure checkout..."}
+              </>
+            ) : remainingCredits > 0 ? "Use Credits & Add Rates ->" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates ->`}
+          </button>
+        ) : (
+          <ManualPaymentOptions
+            priceDisplay={`$${(rateAmountCents / 100).toFixed(0)}`}
+            onWhatsAppPayment={handleCheckout}
+            requesting={stage === "paying"}
+            requested={manualPaymentRequested}
+            contactLabel={manualPaymentContact}
+            whatsappUrl={manualPaymentUrl}
+            paymentDetails={manualPaymentDetails}
+            onCardPayment={async () => {
+              if (!preview) return;
+              localStorage.setItem("boq_type", "rate_boq");
+              localStorage.setItem("boq_rate_context", JSON.stringify(ctx));
+              setStage("paying");
+              setError(null);
+              try {
+                const checkoutBody = rateBoqId
+                  ? { type: "rate_boq", boq_id: rateBoqId }
+                  : {
+                      type: "rate_boq",
+                      storageKey,
+                      rateColHeader: preview.rateColumnHeader ?? "",
+                      amountColHeader: preview.amountColumnHeader ?? "",
+                    };
+                const res = await fetch("/api/checkout", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(checkoutBody),
+                });
+                if (!res.ok) {
+                  const { error: e } = await res.json();
+                  throw new Error(e || "Could not create payment session");
+                }
+                const { url } = await res.json();
+                window.location.href = url;
+              } catch (err) {
+                setStage("ready");
+                const msg = err instanceof Error ? err.message : "Something went wrong";
+                setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
+              }
+            }}
+            cardEnabled={PAYMENT_MODE === "hybrid"}
+            cardRequesting={stage === "paying"}
+          />
+        )}
 
-        <p className="text-xs text-gray-600">Secure payment via Stripe. You will be redirected back after payment.</p>
+        <p className="text-xs text-gray-600">
+          {remainingCredits > 0
+            ? `Your starter credits apply first. ${PAYMENT_MODE === "stripe" ? "Stripe checkout" : PAYMENT_MODE === "hybrid" ? "manual payment or Stripe" : "manual payment options"} only appear after those credits are used.`
+            : PAYMENT_MODE !== "stripe"
+              ? "Manual payment is confirmed by our team before this rated BOQ is unlocked."
+              : "Secure payment via Stripe. You will be redirected back after payment."}
+        </p>
 
-        {stage === "paying" && (
+        {stage === "paying" && (remainingCredits > 0 || PAYMENT_MODE === "stripe" || PAYMENT_MODE === "hybrid") && (
           <div className="space-y-2">
             <Progress value={92} className="h-1.5 bg-white/10" />
-            <p className="text-xs text-gray-400">Redirecting to Stripe checkout...</p>
+            <p className="text-xs text-gray-400">
+              {remainingCredits > 0 ? "Unlocking your rated BOQ..." : "Redirecting to Stripe checkout..."}
+            </p>
           </div>
         )}
       </div>
     );
   }
 
-  // ── Upload screen ───────────────────────────────────────────────────────────
+  // Upload screen
   return (
     <>
       <div className="text-center mb-8">
         <p className="text-gray-400 text-sm leading-relaxed">
           Upload an Excel BOQ that&apos;s missing rates.
-          <br />AI fills rates using Zambian construction market prices.
+          <br />AI fills rates using Southern African construction market context.
         </p>
       </div>
 
@@ -1153,7 +1528,7 @@ function RateBOQTab() {
             </div>
             <div>
               <p className="font-medium text-sm text-white">Drop your BOQ here</p>
-              <p className="text-xs text-gray-500 mt-1">Excel (.xlsx or .xls) · max 50 MB</p>
+              <p className="text-xs text-gray-500 mt-1">Excel (.xlsx or .xls) - max 50 MB</p>
             </div>
           </div>
         )}
@@ -1179,9 +1554,9 @@ function RateBOQTab() {
         {isProcessing ? (
           <span className="inline-flex items-center gap-2">
             <span className="w-3.5 h-3.5 rounded-full border-2 border-black/40 border-t-transparent animate-spin" />
-            Validating…
+            Validating...
           </span>
-        ) : "Validate & Continue →"}
+        ) : "Validate & Continue ->"}
       </button>
 
       <p className="mt-8 text-center text-xs text-gray-600">
@@ -1192,10 +1567,12 @@ function RateBOQTab() {
   );
 }
 
+
 // ─── Main Upload Page ────────────────────────────────────────────────────────
 
 export default function UploadPage() {
   const [activeTab, setActiveTab] = useState<Tab>("generate");
+  const { remainingCredits, loadingCredits } = useFreeBoqCredits();
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16">
@@ -1205,9 +1582,12 @@ export default function UploadPage() {
           <a href="/">
             <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
           </a>
-          <a href="/dashboard" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-            My BOQs →
-          </a>
+          <div className="flex items-center gap-3">
+            {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} /> : null}
+            <a href="/dashboard" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+              My BOQs →
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -1278,3 +1658,6 @@ function ExcelIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+
+

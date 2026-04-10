@@ -23,6 +23,7 @@ export async function GET(
     .eq("id", id)
     .eq("user_id", user.id)
     .eq("payment_status", "paid")
+    .eq("processing_status", "completed")
     .single();
 
   if (error || !data) {

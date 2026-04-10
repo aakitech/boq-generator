@@ -1,5 +1,6 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType, type UsageMetadata } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
+import { computeGeminiCostUsd, type GeminiUsageEntry } from "@/lib/gemini-pricing";
 import type {
   BOQArtifacts,
   BOQDocumentType,
@@ -33,6 +34,10 @@ export type GenerationInputDocument = {
 };
 type GenerationInputBundle = {
   documents: GenerationInputDocument[];
+};
+
+export type GeminiUsageCollector = {
+  entries: GeminiUsageEntry[];
 };
 
 type StructurePassResponse = {
@@ -301,6 +306,32 @@ function isMalformedJsonError(error: unknown): boolean {
   );
 }
 
+function recordGeminiUsage(
+  collector: GeminiUsageCollector | undefined,
+  model: string,
+  operation: string,
+  usageMetadata?: UsageMetadata,
+) {
+  if (!collector || !usageMetadata) return;
+
+  const inputTokens = usageMetadata.promptTokenCount ?? 0;
+  const outputTokens = usageMetadata.candidatesTokenCount ?? Math.max(0, (usageMetadata.totalTokenCount ?? 0) - inputTokens);
+  const totalTokens = usageMetadata.totalTokenCount ?? inputTokens + outputTokens;
+
+  collector.entries.push({
+    operation,
+    model,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: computeGeminiCostUsd({
+      model,
+      inputTokens,
+      outputTokens,
+    }),
+  });
+}
+
 async function generateStructuredContent<T>({
   prompt,
   responseSchema,
@@ -309,6 +340,8 @@ async function generateStructuredContent<T>({
   preferredModel,
   modelCandidates,
   thinkingBudget = -1,
+  usageCollector,
+  usageOperation,
 }: {
   prompt: string;
   responseSchema: object;
@@ -318,6 +351,8 @@ async function generateStructuredContent<T>({
   modelCandidates?: string[];
   /** Gemini thinking token budget. -1 = dynamic (default). 0 = disabled. */
   thinkingBudget?: number;
+  usageCollector?: GeminiUsageCollector;
+  usageOperation?: string;
 }): Promise<T> {
   const candidates = Array.from(
     new Set([preferredModel, ...(modelCandidates ?? DEFAULT_MODEL_CANDIDATES)].filter(Boolean))
@@ -339,6 +374,7 @@ async function generateStructuredContent<T>({
           } as any,
         });
         const result = await model.generateContent(prompt);
+        recordGeminiUsage(usageCollector, modelName, usageOperation ?? "structured_content", result.response.usageMetadata);
         return parseJsonResponse<T>(result.response.text());
       } catch (error) {
         lastError = error;
@@ -720,19 +756,23 @@ RULES:
 
 async function generateStructure(
   bundleText: string,
-  recoveryMode: boolean
+  recoveryMode: boolean,
+  usageCollector?: GeminiUsageCollector
 ): Promise<StructurePassResponse> {
   return callModel<StructurePassResponse>({
     prompt: `Extract BOQ structure only from this document bundle:\n\n${bundleText}`,
     responseSchema: STRUCTURE_SCHEMA,
     systemInstruction: recoveryMode ? STRUCTURE_RECOVERY_PROMPT : STRUCTURE_PROMPT,
     temperature: recoveryMode ? 0.3 : 0.2,
+    usageCollector,
+    usageOperation: recoveryMode ? "generate_structure_recovery" : "generate_structure",
   });
 }
 
 async function extractQuantities(
   bundleText: string,
-  structure: BOQStructureArtifact
+  structure: BOQStructureArtifact,
+  usageCollector?: GeminiUsageCollector
 ): Promise<QuantityPassResponse> {
   const itemCatalog = structure.bills.flatMap((bill) =>
     bill.items
@@ -754,6 +794,8 @@ async function extractQuantities(
     responseSchema: QUANTITY_SCHEMA,
     systemInstruction: QUANTITY_PROMPT,
     temperature: 0.1,
+    usageCollector,
+    usageOperation: "extract_quantities",
   });
 }
 
@@ -762,11 +804,15 @@ async function callModel<T>({
   responseSchema,
   systemInstruction,
   temperature,
+  usageCollector,
+  usageOperation,
 }: {
   prompt: string;
   responseSchema: object;
   systemInstruction: string;
   temperature: number;
+  usageCollector?: GeminiUsageCollector;
+  usageOperation?: string;
 }): Promise<T> {
   return generateStructuredContent<T>({
     preferredModel: SOW_PRIMARY_MODEL,
@@ -775,6 +821,8 @@ async function callModel<T>({
     responseSchema,
     systemInstruction,
     temperature,
+    usageCollector,
+    usageOperation,
   });
 }
 
@@ -1051,7 +1099,7 @@ const SOW_VALIDATION_SCHEMA = {
 
 export async function validateSOW(
   text: string,
-  opts?: { supportingDocsCount?: number }
+  opts?: { supportingDocsCount?: number; usageCollector?: GeminiUsageCollector }
 ): Promise<SOWValidationResult> {
   const preview = text.slice(0, 6000);
   const heuristic = inferSOWHeuristics(text, opts?.supportingDocsCount ?? 0);
@@ -1066,6 +1114,8 @@ export async function validateSOW(
       modelCandidates: SOW_MODEL_CANDIDATES,
       responseSchema: SOW_VALIDATION_SCHEMA,
       temperature: 0,
+      usageCollector: opts?.usageCollector,
+      usageOperation: "validate_sow",
       prompt: `Analyse this document excerpt and classify whether it is suitable for construction BOQ generation.
 
 Only classify as isSOW=true if the document is a construction/engineering scope of work, specification, BOQ, or similar works document describing measurable physical work items.
@@ -1637,7 +1687,7 @@ function summarizeRateQuality(
 
 async function fillRatesPass(
   boq: BOQDocument,
-  options?: { rateContext?: RateContext }
+  options?: { rateContext?: RateContext; usageCollector?: GeminiUsageCollector }
 ): Promise<BOQDocument> {
   const contextBlock = options?.rateContext ? `\n\n${buildRateContextBlock(options.rateContext)}` : "";
   const existingRates = boq.bills.flatMap((bill) =>
@@ -1789,6 +1839,8 @@ async function fillRatesPass(
       modelCandidates: RATE_MODEL_CANDIDATES,
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
+      usageCollector: options?.usageCollector,
+      usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}
 
 RATE PROVENANCE RULES:
@@ -1918,9 +1970,10 @@ Apply these adjustments consistently across all items. Transport-sensitive items
 
 export async function fillMissingRatesInExistingBOQ(
   boq: BOQDocument,
-  rateContext?: RateContext
+  rateContext?: RateContext,
+  usageCollector?: GeminiUsageCollector
 ): Promise<BOQDocument> {
-  const filled = await fillRatesPass(boq, { rateContext });
+  const filled = await fillRatesPass(boq, { rateContext, usageCollector });
   const workbookPreservation = filled.workbook_preservation
     ? {
         ...filled.workbook_preservation,
@@ -1950,6 +2003,7 @@ export async function generateBOQ(
   opts?: {
     suggestRates?: boolean;
     documentClassification?: DocumentClassification;
+    usageCollector?: GeminiUsageCollector;
   }
 ): Promise<BOQDocument> {
   const documents =
@@ -1967,11 +2021,11 @@ export async function generateBOQ(
       : input.documents;
   const bundleText = buildPromptBundle(documents);
 
-  const structureRaw = await generateStructure(bundleText, false);
+  const structureRaw = await generateStructure(bundleText, false, opts?.usageCollector);
   let structure = normalizeStructure(structureRaw);
 
   if (countNonHeaderItems(structure) === 0) {
-    const retryRaw = await generateStructure(bundleText, true);
+    const retryRaw = await generateStructure(bundleText, true, opts?.usageCollector);
     structure = normalizeStructure(retryRaw);
   }
 
@@ -1983,7 +2037,7 @@ export async function generateBOQ(
 
   const quantitiesRaw = applyDrawingCountHeuristics(
     structure,
-    await extractQuantities(bundleText, structure),
+    await extractQuantities(bundleText, structure, opts?.usageCollector),
     documents
   );
   const boq = mergeStructureAndQuantities(
@@ -2002,7 +2056,7 @@ export async function generateBOQ(
     buildSourceBundle(documents)
   );
   if (opts?.suggestRates) {
-    return fillRatesPass(boq);
+    return fillRatesPass(boq, { usageCollector: opts.usageCollector });
   }
   return boq;
 }

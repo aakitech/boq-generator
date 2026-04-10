@@ -16,11 +16,6 @@ const audience = [
   "Developers and project teams comparing pricing options early",
 ];
 
-const isProdWaitlistMode =
-  process.env.NODE_ENV === "production" &&
-  (process.env.NEXT_PUBLIC_APP_URL === "https://boq.aakitech.com" ||
-    process.env.NEXT_PUBLIC_BASE_URL === "https://boq.aakitech.com");
-
 export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0a0a]">
@@ -35,22 +30,20 @@ export default function LandingPage() {
               height="28"
             />
           </a>
-          {!isProdWaitlistMode ? (
-            <div className="flex items-center gap-3 sm:gap-4">
-              <a
-                href="/dashboard"
-                className="hidden text-xs text-gray-400 transition-colors hover:text-white sm:block"
-              >
-                Existing user? Dashboard
-              </a>
-              <a
-                href="/upload"
-                className="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-              >
-                Try the product
-              </a>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <a
+              href="/dashboard"
+              className="hidden text-xs text-gray-400 transition-colors hover:text-white sm:block"
+            >
+              Existing user? Dashboard
+            </a>
+            <a
+              href="/upload"
+              className="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+            >
+              Try for free
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -73,22 +66,22 @@ export default function LandingPage() {
             <p className="mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-gray-300">
               BOQ Generator helps construction teams move from Scope of Work to
               structured BOQ drafts, cleaner rate workflows, and faster tender prep.
-              We are opening access soon, and the waitlist is the best way to get launch
-              updates and early access news.
+              New accounts can now try the product with 1,000 starter credits, and you only
+              pay once those credits are used.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
               <a
-                href="#waitlist"
+                href="/upload"
                 className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300"
               >
-                Join the waitlist
+                Try for free
               </a>
               <a
-                href="#how-it-works"
+                href="#waitlist"
                 className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
               >
-                See how it works
+                Join the waitlist
               </a>
             </div>
           </div>
@@ -135,16 +128,15 @@ export default function LandingPage() {
             ))}
           </div>
 
-          {!isProdWaitlistMode ? (
-            <div className="mt-10 text-center">
-              <a
-                href="/upload"
-                className="inline-flex rounded-xl bg-amber-400 px-8 py-4 text-base font-semibold text-black transition-colors hover:bg-amber-300"
-              >
-                Try the product
-              </a>
-            </div>
-          ) : null}
+          <div className="mt-10 text-center space-y-3">
+            <a
+              href="/upload"
+              className="inline-flex rounded-xl bg-amber-400 px-8 py-4 text-base font-semibold text-black transition-colors hover:bg-amber-300"
+            >
+              Try for free
+            </a>
+            <p className="text-xs text-gray-500">New accounts get 1,000 starter credits to test the product.</p>
+          </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
@@ -181,7 +173,7 @@ export default function LandingPage() {
                 Who It&apos;s For
               </p>
               <h2 className="mt-3 text-3xl font-bold text-white">
-                Join the waitlist if your team touches tenders, estimates, or project pricing
+                Join the waitlist if your team wants updates, early access news, or launch follow-up
               </h2>
               <div className="mt-8 space-y-4">
                 {audience.map((item) => (
@@ -196,10 +188,10 @@ export default function LandingPage() {
 
         <section className="mx-auto max-w-6xl px-4 py-10 pb-24 text-center">
           <h2 className="text-2xl font-bold text-white mb-4">Simple pricing</h2>
-          <p className="text-gray-400 text-sm mb-10">No subscriptions. Pay only when you need a BOQ.</p>
+          <p className="text-gray-400 text-sm mb-10">Start with 1,000 credits, then pay only when you need more.</p>
           <div className="inline-block rounded-2xl border border-amber-500/30 bg-[#0f0f0f] p-8 text-left min-w-[280px]">
             <p className="text-5xl font-bold text-amber-400 mb-1">$20 - $500</p>
-            <p className="text-gray-400 text-sm mb-6">USD · one-time per BOQ · based on project size</p>
+            <p className="text-gray-400 text-sm mb-6">USD - one-time per BOQ - based on project size after your starter credits are used</p>
             <ul className="space-y-2 mb-8">
               {[
                 "Full structured BOQ",
@@ -224,10 +216,10 @@ export default function LandingPage() {
               ))}
             </ul>
             <a
-              href="#waitlist"
+              href="/upload"
               className="block w-full py-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-bold text-sm text-center transition-colors"
             >
-              Join the waitlist
+              Try for free
             </a>
           </div>
         </section>

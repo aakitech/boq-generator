@@ -9,6 +9,19 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    const shouldForceManualPayment = process.env.NODE_ENV === "production";
+    const paymentProvider =
+      process.env.PAYMENT_PROVIDER === "manual_whatsapp" || process.env.NEXT_PUBLIC_PAYMENT_PROVIDER === "manual_whatsapp"
+        ? "manual_whatsapp"
+        : "stripe";
+
+    if (shouldForceManualPayment && paymentProvider === "manual_whatsapp") {
+      return NextResponse.json(
+        { error: "Card and mobile payment are coming soon. Please use manual payment for now." },
+        { status: 409 }
+      );
+    }
+
     const body = (await req.json()) as {
       boq_id?: string;
       type?: "generate_boq" | "rate_boq";
