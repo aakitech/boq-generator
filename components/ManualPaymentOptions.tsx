@@ -49,7 +49,7 @@ export default function ManualPaymentOptions({
             <p className="mt-1 text-xs text-gray-400">
               {cardEnabled
                 ? "You can test either manual payment or Stripe in this environment."
-                : "Manual payment is the current unlock option for this BOQ."}
+                : "Manual payment is the current unlock option for this BOQ for your location."}
             </p>
           </div>
           <p className="text-xl font-bold text-amber-300">{priceDisplay}</p>

@@ -37,7 +37,7 @@ function LoginContent() {
         </div>
 
         <div className="inline-flex items-center justify-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-          New accounts get 8 free BOQs
+          New accounts get 1,000 starter credits
         </div>
 
         <button
@@ -49,7 +49,7 @@ function LoginContent() {
         </button>
 
         <p className="text-xs text-gray-600">
-          Your BOQs are saved to your account, and paid checkout only starts after your free BOQs are used.
+          Your BOQs are saved to your account, and paid checkout only starts after your starter credits are used.
         </p>
       </div>
     </main>

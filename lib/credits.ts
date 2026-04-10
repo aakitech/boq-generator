@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { STARTER_WALLET_CREDITS } from "@/lib/gemini-pricing";
 
-export const STARTER_FREE_BOQ_CREDITS = 8;
+export const STARTER_CREDITS = STARTER_WALLET_CREDITS;
 
 export type CreditConsumptionReason = "generate_boq" | "rate_boq";
 
 type CreditStatus = "consumed" | "already_consumed" | "insufficient";
 
-type ConsumeFreeBoqCreditResult = {
+type ConsumeWalletCreditsResult = {
   status: CreditStatus;
   remainingCredits: number;
 };
@@ -17,7 +18,7 @@ export async function getRemainingCredits(
 ): Promise<number> {
   const { data, error } = await client
     .from("profiles")
-    .select("free_boq_credits_balance")
+    .select("wallet_credits_balance")
     .eq("id", userId)
     .single();
 
@@ -25,23 +26,29 @@ export async function getRemainingCredits(
     throw new Error(error.message);
   }
 
-  return data?.free_boq_credits_balance ?? 0;
+  return data?.wallet_credits_balance ?? 0;
 }
 
-export async function consumeFreeBoqCredit(
+export async function consumeWalletCredits(
   client: SupabaseClient,
   options: {
     userId: string;
     reason: CreditConsumptionReason;
     referenceType: string;
     referenceId: string;
+    credits: number;
+    deltaUsd: number;
+    metadata?: Record<string, unknown>;
   },
-): Promise<ConsumeFreeBoqCreditResult> {
-  const { data, error } = await client.rpc("consume_free_boq_credit", {
+): Promise<ConsumeWalletCreditsResult> {
+  const { data, error } = await client.rpc("consume_wallet_credits", {
     p_user_id: options.userId,
     p_reason: options.reason,
     p_reference_type: options.referenceType,
     p_reference_id: options.referenceId,
+    p_credits: options.credits,
+    p_delta_usd: options.deltaUsd,
+    p_metadata: options.metadata ?? null,
   });
 
   if (error) {
@@ -55,10 +62,12 @@ export async function consumeFreeBoqCredit(
   };
 }
 
-export async function refundFreeBoqCredit(
+export async function refundWalletCredits(
   client: SupabaseClient,
   options: {
     userId: string;
+    credits: number;
+    deltaUsd?: number;
     reason: CreditConsumptionReason;
     referenceType: string;
     referenceId: string;
@@ -66,7 +75,7 @@ export async function refundFreeBoqCredit(
 ): Promise<void> {
   const { data: current, error: currentError } = await client
     .from("profiles")
-    .select("free_boq_credits_balance")
+    .select("wallet_credits_balance")
     .eq("id", options.userId)
     .single();
 
@@ -74,10 +83,12 @@ export async function refundFreeBoqCredit(
     throw new Error(currentError.message);
   }
 
+  const newBalance = (current?.wallet_credits_balance ?? 0) + options.credits;
+
   const { error: updateError } = await client
     .from("profiles")
     .update({
-      free_boq_credits_balance: (current?.free_boq_credits_balance ?? 0) + 1,
+      wallet_credits_balance: newBalance,
     })
     .eq("id", options.userId);
 
@@ -87,10 +98,16 @@ export async function refundFreeBoqCredit(
 
   const { error: insertError } = await client.from("credit_events").insert({
     user_id: options.userId,
-    delta: 1,
+    delta: options.credits,
+    delta_usd: Math.abs(options.deltaUsd ?? 0),
+    balance_after: newBalance,
     reason: "manual_refund",
     reference_type: options.referenceType,
     reference_id: `${options.reason}:${options.referenceId}`,
+    metadata: {
+      refunded_credits: options.credits,
+      refunded_reason: options.reason,
+    },
   });
 
   if (insertError) {

@@ -7,7 +7,9 @@ import { extractWorkbookBOQ } from "@/lib/excel";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import type { PostgrestError } from "@supabase/supabase-js";
-import { consumeFreeBoqCredit } from "@/lib/credits";
+import { consumeWalletCredits } from "@/lib/credits";
+import { summarizeGeminiUsage } from "@/lib/gemini-pricing";
+import type { GeminiUsageCollector } from "@/lib/claude";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -202,7 +204,9 @@ export async function POST(req: NextRequest) {
       rateColumnHeader: rateColHeader || null,
       amountColumnHeader: amountColHeader || null,
     });
-    const boq = await fillMissingRatesInExistingBOQ(workbookBoq, effectiveRateContext);
+    const usageCollector: GeminiUsageCollector = { entries: [] };
+    const boq = await fillMissingRatesInExistingBOQ(workbookBoq, effectiveRateContext, usageCollector);
+    const usageSummary = summarizeGeminiUsage(usageCollector.entries);
 
     const title = boq.project || "Rated BOQ";
     const itemCount = boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
@@ -212,16 +216,24 @@ export async function POST(req: NextRequest) {
     if (boqId) {
       let remainingCredits: number | null = null;
       if (use_credit) {
-        const creditResult = await consumeFreeBoqCredit(serviceClient, {
+        const creditResult = await consumeWalletCredits(serviceClient, {
           userId: user.id,
           reason: "rate_boq",
           referenceType: "boq",
           referenceId: boqId,
+          credits: Math.max(usageSummary.creditsCharged, 1),
+          deltaUsd: usageSummary.costUsd,
+          metadata: {
+            ai_cost_usd: usageSummary.costUsd,
+            ai_input_tokens: usageSummary.inputTokens,
+            ai_output_tokens: usageSummary.outputTokens,
+            ai_total_tokens: usageSummary.totalTokens,
+          },
         });
 
         if (creditResult.status === "insufficient") {
           return NextResponse.json(
-            { error: "No free BOQs remaining", remainingCredits: 0 },
+            { error: "No credits remaining", remainingCredits: 0 },
             { status: 402 }
           );
         }
@@ -231,6 +243,8 @@ export async function POST(req: NextRequest) {
           reason: "rate_boq",
           boqId,
           remainingCredits,
+          creditsCharged: usageSummary.creditsCharged,
+          aiCostUsd: usageSummary.costUsd,
         });
       }
 
@@ -250,6 +264,12 @@ export async function POST(req: NextRequest) {
           processing_context: effectiveRateContext ?? null,
           rate_col_header: rateColHeader || null,
           amount_col_header: amountColHeader || null,
+          ai_input_tokens: usageSummary.inputTokens,
+          ai_output_tokens: usageSummary.outputTokens,
+          ai_total_tokens: usageSummary.totalTokens,
+          ai_cost_usd: usageSummary.costUsd,
+          ai_credits_charged: usageSummary.creditsCharged,
+          ai_usage_breakdown: usageSummary.entries,
         })
         .eq("id", boqId)
         .eq("user_id", user.id)
@@ -267,6 +287,8 @@ export async function POST(req: NextRequest) {
         itemCount,
         storageKey,
         unlockType: use_credit ? "credit" : "stripe",
+        aiCostUsd: usageSummary.costUsd,
+        creditsCharged: usageSummary.creditsCharged,
       });
 
       return NextResponse.json({
@@ -290,6 +312,12 @@ export async function POST(req: NextRequest) {
           payment_source: stripeSessionId ? "stripe" : null,
           processing_status: "completed",
           processing_context: effectiveRateContext ?? null,
+          ai_input_tokens: usageSummary.inputTokens,
+          ai_output_tokens: usageSummary.outputTokens,
+          ai_total_tokens: usageSummary.totalTokens,
+          ai_cost_usd: usageSummary.costUsd,
+          ai_credits_charged: usageSummary.creditsCharged,
+          ai_usage_breakdown: usageSummary.entries,
         })
         .select("id")
         .single();
@@ -314,6 +342,12 @@ export async function POST(req: NextRequest) {
             payment_source: stripeSessionId ? "stripe" : null,
             processing_status: "completed",
             processing_context: effectiveRateContext ?? null,
+            ai_input_tokens: usageSummary.inputTokens,
+            ai_output_tokens: usageSummary.outputTokens,
+            ai_total_tokens: usageSummary.totalTokens,
+            ai_cost_usd: usageSummary.costUsd,
+            ai_credits_charged: usageSummary.creditsCharged,
+            ai_usage_breakdown: usageSummary.entries,
           })
           .select("id")
           .single());
@@ -380,6 +414,8 @@ export async function POST(req: NextRequest) {
       itemCount,
       storageKey,
       unlockType: stripeSessionId ? "stripe" : "credit",
+      aiCostUsd: usageSummary.costUsd,
+      creditsCharged: usageSummary.creditsCharged,
     });
     return NextResponse.json({ boq, boq_id: savedId });
   } catch (err) {

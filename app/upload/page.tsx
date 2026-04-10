@@ -153,7 +153,7 @@ function GenerateBOQTab() {
   );
   const primaryActionLabel = useMemo(() => {
     if (stage === "paying") {
-      if (remainingCredits > 0) return "Unlocking with a free BOQ...";
+      if (remainingCredits > 0) return "Unlocking with credits...";
       return PAYMENT_MODE !== "stripe" ? "Opening WhatsApp..." : "Opening secure checkout...";
     }
     if (stage === "generating") return "Generating your BOQ...";
@@ -475,7 +475,7 @@ function GenerateBOQTab() {
           } else {
             await refreshCredits();
           }
-          throw new Error(body.error || "Could not unlock BOQ with a free credit");
+          throw new Error(body.error || "Could not unlock BOQ with credits");
         }
 
         const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
@@ -778,9 +778,9 @@ function GenerateBOQTab() {
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-white">Free BOQ credits available</p>
+                <p className="text-sm font-medium text-white">Starter credits available</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  This rate fill will use 1 free BOQ credit before paid options are needed.
+                  This rate fill will use credits based on actual AI usage before paid options are needed.
                 </p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />
@@ -792,11 +792,11 @@ function GenerateBOQTab() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-white font-semibold text-lg">BOQ Generation</p>
-              <p className="text-gray-400 text-sm mt-0.5">Free to start, then pay based on project size</p>
+              <p className="text-gray-400 text-sm mt-0.5">Start with credits, then pay based on project size</p>
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">8 free BOQs for new accounts</p>
+              <p className="text-xs text-gray-500">1,000 starter credits for new accounts</p>
             </div>
           </div>
           <ul className="space-y-2">
@@ -1079,7 +1079,7 @@ function RateBOQTab() {
           } else {
             await refreshCredits();
           }
-          throw new Error(body.error || "Could not rate BOQ with a free credit");
+          throw new Error(body.error || "Could not rate BOQ with credits");
         }
         const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
         if (typeof body.remainingCredits === "number") {
@@ -1360,9 +1360,9 @@ function RateBOQTab() {
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-white">Free BOQ credits available</p>
+                <p className="text-sm font-medium text-white">Starter credits available</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  This rate fill will use 1 free BOQ credit before paid options are needed.
+                  This rate fill will use credits based on actual AI usage before paid options are needed.
                 </p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />
@@ -1376,7 +1376,7 @@ function RateBOQTab() {
               <p className="text-white font-semibold text-lg">BOQ Rate Filling</p>
               <p className="text-gray-400 text-sm mt-0.5">
                 {remainingCredits > 0
-                  ? "Use 1 free BOQ credit now"
+                  ? "Use starter credits now"
                   : PAYMENT_MODE !== "stripe"
                     ? "Request manual payment and wait for approval"
                     : "One-time instant delivery"}
@@ -1384,10 +1384,10 @@ function RateBOQTab() {
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold text-amber-400">
-                {remainingCredits > 0 ? "Free" : `$${(rateAmountCents / 100).toFixed(0)}`}
+                {remainingCredits > 0 ? "Credits" : `$${(rateAmountCents / 100).toFixed(0)}`}
               </p>
               <p className="text-xs text-gray-500">
-                {remainingCredits > 0 ? `${remainingCredits} free BOQs left` : "USD"}
+                {remainingCredits > 0 ? `${remainingCredits.toLocaleString()} credits left` : "USD"}
               </p>
             </div>
           </div>
@@ -1415,9 +1415,9 @@ function RateBOQTab() {
             {stage === "paying" ? (
               <>
                 <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
-                {remainingCredits > 0 ? "Unlocking with free BOQ credit..." : "Opening secure checkout..."}
+                {remainingCredits > 0 ? "Unlocking with credits..." : "Opening secure checkout..."}
               </>
-            ) : remainingCredits > 0 ? "Use 1 Free BOQ & Add Rates ->" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates ->`}
+            ) : remainingCredits > 0 ? "Use Credits & Add Rates ->" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates ->`}
           </button>
         ) : (
           <ManualPaymentOptions
@@ -1467,7 +1467,7 @@ function RateBOQTab() {
 
         <p className="text-xs text-gray-600">
           {remainingCredits > 0
-            ? `Your free BOQ credits apply first. ${PAYMENT_MODE === "stripe" ? "Stripe checkout" : PAYMENT_MODE === "hybrid" ? "manual payment or Stripe" : "manual payment options"} only appear after those free BOQs are used.`
+            ? `Your starter credits apply first. ${PAYMENT_MODE === "stripe" ? "Stripe checkout" : PAYMENT_MODE === "hybrid" ? "manual payment or Stripe" : "manual payment options"} only appear after those credits are used.`
             : PAYMENT_MODE !== "stripe"
               ? "Manual payment is confirmed by our team before this rated BOQ is unlocked."
               : "Secure payment via Stripe. You will be redirected back after payment."}

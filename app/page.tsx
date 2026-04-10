@@ -66,8 +66,8 @@ export default function LandingPage() {
             <p className="mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-gray-300">
               BOQ Generator helps construction teams move from Scope of Work to
               structured BOQ drafts, cleaner rate workflows, and faster tender prep.
-              New accounts can now try the product for free with 8 BOQs, and you only
-              pay once those free BOQs are used.
+              New accounts can now try the product with 1,000 starter credits, and you only
+              pay once those credits are used.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
@@ -135,7 +135,7 @@ export default function LandingPage() {
             >
               Try for free
             </a>
-            <p className="text-xs text-gray-500">New accounts get 8 free BOQs to test the product.</p>
+            <p className="text-xs text-gray-500">New accounts get 1,000 starter credits to test the product.</p>
           </div>
         </section>
 
@@ -188,10 +188,10 @@ export default function LandingPage() {
 
         <section className="mx-auto max-w-6xl px-4 py-10 pb-24 text-center">
           <h2 className="text-2xl font-bold text-white mb-4">Simple pricing</h2>
-          <p className="text-gray-400 text-sm mb-10">Start free with 8 BOQs, then pay only when you need more.</p>
+          <p className="text-gray-400 text-sm mb-10">Start with 1,000 credits, then pay only when you need more.</p>
           <div className="inline-block rounded-2xl border border-amber-500/30 bg-[#0f0f0f] p-8 text-left min-w-[280px]">
             <p className="text-5xl font-bold text-amber-400 mb-1">$20 - $500</p>
-            <p className="text-gray-400 text-sm mb-6">USD - one-time per BOQ - based on project size after your free BOQs are used</p>
+            <p className="text-gray-400 text-sm mb-6">USD - one-time per BOQ - based on project size after your starter credits are used</p>
             <ul className="space-y-2 mb-8">
               {[
                 "Full structured BOQ",

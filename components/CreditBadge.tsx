@@ -4,10 +4,11 @@ type CreditBadgeProps = {
 };
 
 export default function CreditBadge({ remainingCredits, className = "" }: CreditBadgeProps) {
+  const displayCredits = Math.max(remainingCredits, 0);
   const label =
-    remainingCredits === 1
-      ? "1 free BOQ left"
-      : `${remainingCredits} free BOQs left`;
+    displayCredits === 1
+      ? "1 credit left"
+      : `${displayCredits.toLocaleString()} credits left`;
 
   return (
     <span

@@ -39,7 +39,8 @@ export default function BOQPricingCard({
   manualPaymentDetails,
 }: BOQPricingCardProps) {
   const { billCount, itemCount, tier, approxRangeLabel } = boqPreview;
-  const hasFreeCredits = (creditsRemaining ?? 0) > 0;
+  const safeCreditsRemaining = creditsRemaining ?? 0;
+  const hasFreeCredits = safeCreditsRemaining > 0;
   const usesManualPayment = !hasFreeCredits && paymentMode !== "stripe";
   const hasStripeOption = !hasFreeCredits && paymentMode === "hybrid";
 
@@ -63,11 +64,11 @@ export default function BOQPricingCard({
         </div>
         <div>
           <p className="text-sm text-white font-medium">
-            {hasFreeCredits ? "Unlock with a free BOQ credit" : "Content locked until payment"}
+            {hasFreeCredits ? "Unlock with your starter credits" : "Content locked until payment"}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {hasFreeCredits
-              ? `${creditsRemaining} free BOQ${creditsRemaining === 1 ? "" : "s"} left on your account.`
+              ? `${safeCreditsRemaining.toLocaleString()} credits left on your account.`
               : "Item descriptions, quantities, and rates are hidden."}
           </p>
         </div>
@@ -82,25 +83,25 @@ export default function BOQPricingCard({
               </span>
             </div>
             <p className="text-white font-semibold text-lg">
-              {hasFreeCredits ? "Use 1 free BOQ credit" : usesManualPayment ? "Request manual payment" : "Unlock BOQ"}
+              {hasFreeCredits ? "Use starter credits" : usesManualPayment ? "Request manual payment" : "Unlock BOQ"}
             </p>
             <p className="text-gray-400 text-sm mt-0.5">
               {hasFreeCredits
-                ? "Start testing now. Pay only after your free BOQs are used."
+                ? "Start testing now. Credit usage depends on the actual AI work for this BOQ."
                 : usesManualPayment
                   ? "Chat with our team on WhatsApp, complete payment, then we will unlock this BOQ."
                   : "One-time instant access"}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-2xl font-bold text-amber-400">{hasFreeCredits ? "Free" : tier.displayUsd}</p>
-            <p className="text-xs text-gray-500">{hasFreeCredits ? `${creditsRemaining} left` : "USD"}</p>
+            <p className="text-2xl font-bold text-amber-400">{hasFreeCredits ? "Credits" : tier.displayUsd}</p>
+            <p className="text-xs text-gray-500">{hasFreeCredits ? `${safeCreditsRemaining.toLocaleString()} left` : "USD"}</p>
           </div>
         </div>
 
         <div className="rounded-lg bg-white/[0.03] border border-white/10 px-3 py-2 text-xs text-gray-400">
           {hasFreeCredits ? (
-            <>This BOQ will use <span className="text-gray-200 font-medium">1 free credit</span> from your account.</>
+            <>This BOQ will use <span className="text-gray-200 font-medium">credits based on actual AI usage</span> from your account.</>
           ) : usesManualPayment ? (
             <>Quoted unlock price: <span className="text-gray-200 font-medium">{tier.displayUsd}</span>. Access opens after manual payment is confirmed.</>
           ) : (
@@ -146,17 +147,17 @@ export default function BOQPricingCard({
           {paying ? (
             <>
               <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
-              {hasFreeCredits ? "Unlocking with free credit..." : "Opening secure checkout..."}
+              {hasFreeCredits ? "Unlocking with credits..." : "Opening secure checkout..."}
             </>
           ) : (
-            hasFreeCredits ? "Use 1 Free BOQ ->" : `Unlock & Download - ${tier.displayUsd} ->`
+            hasFreeCredits ? "Use Credits ->" : `Unlock & Download - ${tier.displayUsd} ->`
           )}
         </button>
       )}
 
       <p className="text-xs text-gray-600">
         {hasFreeCredits
-          ? `Free credits apply first. ${paymentMode === "stripe" ? "Stripe checkout" : paymentMode === "hybrid" ? "manual payment or Stripe" : "manual payment options"} appear only after your free BOQs are exhausted.`
+          ? `Starter credits apply first. ${paymentMode === "stripe" ? "Stripe checkout" : paymentMode === "hybrid" ? "manual payment or Stripe" : "manual payment options"} appear only after your credits are exhausted.`
           : usesManualPayment
             ? "Manual payment is confirmed by our team before this BOQ is unlocked."
             : "Secure payment via Stripe. You will be redirected back after payment."}

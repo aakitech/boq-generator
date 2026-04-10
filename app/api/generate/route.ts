@@ -6,6 +6,8 @@ import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { computePricing, loadTiers } from "@/lib/pricing";
+import { summarizeGeminiUsage } from "@/lib/gemini-pricing";
+import type { GeminiUsageCollector } from "@/lib/claude";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -100,7 +102,12 @@ export async function POST(req: NextRequest) {
     }
 
     const supportingDocsCount = (documents ?? []).filter((doc) => doc.role === "supporting").length;
-    const validation = await validateSOW(primaryDocument.text, { supportingDocsCount });
+    const usageCollector: GeminiUsageCollector = { entries: [] };
+
+    const validation = await validateSOW(primaryDocument.text, {
+      supportingDocsCount,
+      usageCollector,
+    });
     const clientSaysNotSOW = body.is_sow === false;
     if (!validation.isSOW || validation.should_block_generation || clientSaysNotSOW || body.should_block_generation) {
       const reason =
@@ -130,8 +137,10 @@ export async function POST(req: NextRequest) {
       {
         suggestRates: suggest_rates ?? false,
         documentClassification: validation,
+        usageCollector,
       }
     );
+    const usageSummary = summarizeGeminiUsage(usageCollector.entries);
 
     // Compute pricing from the generated BOQ
     const tiers = loadTiers();
@@ -164,6 +173,12 @@ export async function POST(req: NextRequest) {
         payment_status: "preview",
         processing_status: "completed",
         grand_total_zmw: pricing.grandTotalZmw,
+        ai_input_tokens: usageSummary.inputTokens,
+        ai_output_tokens: usageSummary.outputTokens,
+        ai_total_tokens: usageSummary.totalTokens,
+        ai_cost_usd: usageSummary.costUsd,
+        ai_credits_charged: usageSummary.creditsCharged,
+        ai_usage_breakdown: usageSummary.entries,
       })
       .select("id")
       .single();
@@ -192,6 +207,8 @@ export async function POST(req: NextRequest) {
       grandTotalZmw: pricing.grandTotalZmw,
       tier: pricing.tier.label,
       amountCents: pricing.tier.usdCents,
+      aiCostUsd: usageSummary.costUsd,
+      creditsCharged: usageSummary.creditsCharged,
     });
 
     // Return preview metadata only — NOT the full BOQ (locked until paid)

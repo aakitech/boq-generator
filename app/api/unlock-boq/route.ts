@@ -4,7 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
-import { consumeFreeBoqCredit, getRemainingCredits } from "@/lib/credits";
+import { consumeWalletCredits, getRemainingCredits } from "@/lib/credits";
 
 export const runtime = "nodejs";
 
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     const { data: boqRow, error: fetchError } = await serviceClient
       .from("boqs")
-      .select("id, data, payment_status, processing_status, user_id")
+      .select("id, data, payment_status, processing_status, user_id, ai_cost_usd, ai_credits_charged, ai_input_tokens, ai_output_tokens, ai_total_tokens")
       .eq("id", boqId)
       .single();
 
@@ -77,16 +77,25 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const creditResult = await consumeFreeBoqCredit(serviceClient, {
+      const creditsToCharge = Math.max(Number(boqRow.ai_credits_charged ?? 0), 1);
+      const creditResult = await consumeWalletCredits(serviceClient, {
         userId: user.id,
         reason: "generate_boq",
         referenceType: "boq",
         referenceId: boqId!,
+        credits: creditsToCharge,
+        deltaUsd: Number(boqRow.ai_cost_usd ?? 0),
+        metadata: {
+          ai_cost_usd: Number(boqRow.ai_cost_usd ?? 0),
+          ai_input_tokens: Number(boqRow.ai_input_tokens ?? 0),
+          ai_output_tokens: Number(boqRow.ai_output_tokens ?? 0),
+          ai_total_tokens: Number(boqRow.ai_total_tokens ?? 0),
+        },
       });
 
       if (creditResult.status === "insufficient") {
         return NextResponse.json(
-          { error: "No free BOQs remaining", remainingCredits: 0 },
+          { error: "No credits remaining", remainingCredits: 0 },
           { status: 402 }
         );
       }
@@ -114,6 +123,8 @@ export async function POST(req: NextRequest) {
         reason: "generate_boq",
         boqId,
         remainingCredits: creditResult.remainingCredits,
+        creditsCharged: creditsToCharge,
+        aiCostUsd: Number(boqRow.ai_cost_usd ?? 0),
       });
       trackEvent(user.id, "boq_unlocked", { boqId, unlockType: "credit" });
 
