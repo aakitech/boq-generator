@@ -22,7 +22,7 @@ interface BOQRow {
   data: { bills?: Array<{ items?: Array<{ amount?: number | null; qty?: number | null; rate?: number | null }> }> };
 }
 
-type DashboardFilter = "all" | "awaiting_approval" | "processing" | "needs_retry" | "completed";
+type DashboardFilter = "all" | "awaiting_payment" | "processing" | "needs_retry" | "completed";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -116,7 +116,7 @@ export default function DashboardPage() {
 
   function statusBadge(boq: BOQRow) {
     if (isAwaitingManualApproval(boq)) {
-      return <span className="inline-flex rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">Awaiting approval</span>;
+      return <span className="inline-flex rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">Awaiting payment</span>;
     }
     if (boq.processing_status === "completed") {
       return <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Completed</span>;
@@ -129,7 +129,7 @@ export default function DashboardPage() {
 
   function matchesFilter(boq: BOQRow) {
     if (activeFilter === "all") return true;
-    if (activeFilter === "awaiting_approval") return isAwaitingManualApproval(boq);
+    if (activeFilter === "awaiting_payment") return isAwaitingManualApproval(boq);
     if (activeFilter === "completed") return boq.processing_status === "completed" && !isAwaitingManualApproval(boq);
     if (activeFilter === "needs_retry") return boq.processing_status === "failed";
     return boq.processing_status === "pending" || boq.processing_status === "processing";
@@ -139,7 +139,7 @@ export default function DashboardPage() {
 
   const filterOptions: Array<{ key: DashboardFilter; label: string }> = [
     { key: "all", label: "All" },
-    { key: "awaiting_approval", label: "Awaiting Approval" },
+    { key: "awaiting_payment", label: "Awaiting Payment" },
     { key: "processing", label: "Processing" },
     { key: "needs_retry", label: "Needs Retry" },
     { key: "completed", label: "Completed" },
@@ -148,7 +148,7 @@ export default function DashboardPage() {
   function filterCount(filter: DashboardFilter) {
     return boqs.filter((boq) => {
       if (filter === "all") return true;
-      if (filter === "awaiting_approval") return isAwaitingManualApproval(boq);
+      if (filter === "awaiting_payment") return isAwaitingManualApproval(boq);
       if (filter === "completed") return boq.processing_status === "completed" && !isAwaitingManualApproval(boq);
       if (filter === "needs_retry") return boq.processing_status === "failed";
       return boq.processing_status === "pending" || boq.processing_status === "processing";
@@ -276,7 +276,7 @@ export default function DashboardPage() {
                     </p>
                     {isAwaitingManualApproval(boq) ? (
                       <p className="mt-1 text-xs text-gray-400">
-                        Manual payment requested. Your BOQ will unlock once the team confirms payment.
+                        Manual payment requested. Your BOQ will unlock once payment is confirmed.
                       </p>
                     ) : null}
                     {boq.processing_status === "failed" && boq.last_error ? (
@@ -292,7 +292,7 @@ export default function DashboardPage() {
                         disabled
                         className="px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 text-xs font-medium cursor-not-allowed"
                       >
-                        Awaiting approval
+                        Awaiting payment
                       </button>
                     ) : boq.processing_status === "completed" ? (
                       <button
