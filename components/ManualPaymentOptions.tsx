@@ -48,7 +48,7 @@ export default function ManualPaymentOptions({
             <p className="text-sm font-semibold text-white">Choose how to pay</p>
             <p className="mt-1 text-xs text-gray-400">
               {cardEnabled
-                ? "You can test either manual payment or Stripe in this dev-environment."
+                ? "You can test either manual payment or Stripe in this dev-environments."
                 : "Manual payment is the current unlock option for this BOQ for your location."}
             </p>
           </div>
