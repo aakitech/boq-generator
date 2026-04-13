@@ -98,6 +98,8 @@ const SOW_MODEL_CANDIDATES = Array.from(
 const RATE_MODEL_CANDIDATES = Array.from(
   new Set([RATE_PRIMARY_MODEL, RATE_FALLBACK_MODEL, "gemini-2.5-flash"].filter(Boolean))
 );
+const HIGH_DEMAND_RETRY_BASE_MS = 1500;
+const RETRYABLE_RETRY_BASE_MS = 1000;
 const SOW_HEADING_TERMS = [
   "bill of quantities",
   "boq",
@@ -290,6 +292,22 @@ function isRetryableModelError(error: unknown): boolean {
   );
 }
 
+function isHighDemandModelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    (message.includes("503") || message.includes("service unavailable")) &&
+    (message.includes("high demand") || message.includes("temporarily unavailable"))
+  );
+}
+
+function computeRetryDelayMs(attempt: number, error: unknown): number {
+  const factor = 2 ** Math.max(0, attempt - 1);
+  if (isHighDemandModelError(error)) {
+    return HIGH_DEMAND_RETRY_BASE_MS * factor;
+  }
+  return RETRYABLE_RETRY_BASE_MS * factor;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -353,6 +371,7 @@ async function generateStructuredContent<T>({
   thinkingBudget?: number;
   usageCollector?: GeminiUsageCollector;
   usageOperation?: string;
+  failoverOnHighDemand?: boolean;
 }): Promise<T> {
   const candidates = Array.from(
     new Set([preferredModel, ...(modelCandidates ?? DEFAULT_MODEL_CANDIDATES)].filter(Boolean))
@@ -384,8 +403,11 @@ async function generateStructuredContent<T>({
         }
 
         if (isRetryableModelError(error)) {
+          if (isHighDemandModelError(error) && failoverOnHighDemand && candidates.length > 1) {
+            break;
+          }
           if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-            await sleep(1000 * attempt);
+            await sleep(computeRetryDelayMs(attempt, error));
             continue;
           }
           break;
@@ -1513,6 +1535,9 @@ export async function validateBOQ(csvText: string): Promise<BOQValidationResult>
     modelCandidates: RATE_MODEL_CANDIDATES,
     responseSchema: BOQ_VALIDATION_SCHEMA,
     temperature: 0,
+    thinkingBudget: 0,
+    failoverOnHighDemand: true,
+    usageOperation: "rate_boq_validation",
     prompt: `Analyse the following spreadsheet data (CSV/table format) and determine whether it is a genuine Bill of Quantities (BOQ).
 
 A valid BOQ has:
@@ -1839,6 +1864,8 @@ async function fillRatesPass(
       modelCandidates: RATE_MODEL_CANDIDATES,
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
+      thinkingBudget: 0,
+      failoverOnHighDemand: true,
       usageCollector: options?.usageCollector,
       usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}

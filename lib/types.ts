@@ -198,6 +198,19 @@ export interface BOQComparisonReport {
   sample_matches: BOQComparisonMatchedItem[];
 }
 
+export interface BOQWorkbookSheetStat {
+  sheet_name: string;
+  source_row_count: number;
+  source_col_count: number;
+  mapped_item_rows: number;
+  repeated_header_count: number;
+  preserved_summary_rows: number;
+  rate_column_header?: string | null;
+  amount_column_header?: string | null;
+  qty_column_header?: string | null;
+  ignored_reason?: "no_measurable_items" | "summary_only" | "empty_sheet" | null;
+}
+
 export interface BOQWorkbookPreservation {
   sheet_name: string;
   source_row_count: number;
@@ -213,6 +226,13 @@ export interface BOQWorkbookPreservation {
   rate_column_header?: string | null;
   amount_column_header?: string | null;
   qty_column_header?: string | null;
+  workbook_sheet_names?: string[];
+  mapped_sheet_names?: string[];
+  ignored_sheet_names?: string[];
+  total_sheet_count?: number;
+  mapped_sheet_count?: number;
+  ignored_sheet_count?: number;
+  per_sheet_stats?: BOQWorkbookSheetStat[];
 }
 
 export interface BOQValidationFlag {

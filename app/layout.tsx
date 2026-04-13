@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 import PostHogProvider from "@/components/PostHogProvider";
+import { CreditsProvider } from "@/components/CreditsProvider";
 
 export const metadata: Metadata = {
   title: "BOQ Generator — AI-powered Bill of Quantities",
@@ -23,7 +24,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${GeistSans.variable} font-sans antialiased bg-[#0f0f0f] text-white`}>
-        <PostHogProvider>{children}</PostHogProvider>
+        <PostHogProvider>
+          <CreditsProvider>{children}</CreditsProvider>
+        </PostHogProvider>
       </body>
     </html>
   );

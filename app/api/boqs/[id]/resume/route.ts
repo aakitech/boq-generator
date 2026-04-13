@@ -17,6 +17,16 @@ function classifyError(message: string): { status: number; safeMessage: string }
     return { status: 429, safeMessage: "AI rate limit reached. Please wait a minute and try again." };
   }
   if (
+    (lower.includes("503") || lower.includes("service unavailable")) &&
+    (lower.includes("high demand") || lower.includes("temporarily unavailable"))
+  ) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI pricing is temporarily under heavy demand. We already retried and attempted model failover. Please try resuming again in 1-2 minutes.",
+    };
+  }
+  if (
     lower.includes("fetch failed") ||
     lower.includes("502") || lower.includes("bad gateway") ||
     lower.includes("503") || lower.includes("service unavailable") ||

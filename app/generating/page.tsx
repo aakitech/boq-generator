@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
+import { useCredits } from "@/components/CreditsProvider";
 
 function GeneratingContent() {
   const router = useRouter();
@@ -17,7 +18,7 @@ function GeneratingContent() {
   const [statusText, setStatusText] = useState("Verifying payment and preparing your BOQ...");
   const [isRateBoq, setIsRateBoq] = useState(false);
   const [isCheckingSavedBoq, setIsCheckingSavedBoq] = useState(false);
-  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
+  const { remainingCredits, loadingCredits } = useCredits();
   const started = useRef(false);
 
   type RecoveryState = {
@@ -26,17 +27,6 @@ function GeneratingContent() {
     processing_status: string | null;
     last_error: string | null;
   };
-
-  useEffect(() => {
-    async function loadCredits() {
-      const res = await fetch("/api/credits");
-      if (!res.ok) return;
-      const body = (await res.json()) as { remainingCredits?: number };
-      setRemainingCredits(body.remainingCredits ?? 0);
-    }
-
-    void loadCredits();
-  }, []);
 
   async function recoverBySession(currentSessionId: string): Promise<RecoveryState | null> {
     try {
@@ -250,7 +240,7 @@ function GeneratingContent() {
           <a href="/">
             <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
           </a>
-          {remainingCredits !== null ? <CreditBadge remainingCredits={remainingCredits} /> : null}
+          {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} /> : null}
         </div>
       </nav>
 
