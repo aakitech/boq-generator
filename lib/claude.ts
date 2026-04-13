@@ -382,16 +382,22 @@ async function generateStructuredContent<T>({
   for (const modelName of candidates) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
       try {
+        // Some Gemini models reject an explicit zero-budget thinking config.
+        // Omit thinkingConfig entirely in that case and let the model default.
+        const generationConfig: Record<string, unknown> = {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema as any,
+          temperature,
+        };
+        if (thinkingBudget !== 0) {
+          generationConfig.thinkingConfig = { thinkingBudget };
+        }
+
         const model = getGenAI().getGenerativeModel({
           model: modelName,
           systemInstruction,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema as any,
-            temperature,
-            thinkingConfig: { thinkingBudget },
-          } as any,
+          generationConfig: generationConfig as any,
         });
         const result = await model.generateContent(prompt);
         recordGeminiUsage(usageCollector, modelName, usageOperation ?? "structured_content", result.response.usageMetadata);

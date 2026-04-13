@@ -17,6 +17,16 @@ function classifyError(message: string): { status: number; safeMessage: string }
     return { status: 429, safeMessage: "AI rate limit reached. Please wait a minute and try again." };
   }
   if (
+    lower.includes("400") &&
+    (lower.includes("budget 0 is invalid") || lower.includes("thinking mode"))
+  ) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI pricing hit a temporary model configuration issue while retrying providers. Please try resuming this BOQ again now or in a minute.",
+    };
+  }
+  if (
     (lower.includes("503") || lower.includes("service unavailable")) &&
     (lower.includes("high demand") || lower.includes("temporarily unavailable"))
   ) {
