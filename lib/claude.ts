@@ -360,6 +360,7 @@ async function generateStructuredContent<T>({
   thinkingBudget = -1,
   usageCollector,
   usageOperation,
+  failoverOnHighDemand = false,
 }: {
   prompt: string;
   responseSchema: object;
