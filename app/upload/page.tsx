@@ -1324,6 +1324,12 @@ function RateBOQTab() {
           </div>
         </div>
 
+        {error && (
+          <div className="px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-sm text-left">
+            {error}
+          </div>
+        )}
+
         <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-white/[0.03] border border-white/10 text-left">
           <div className="w-8 h-8 rounded bg-green-500/20 flex items-center justify-center shrink-0">
             <ExcelIcon className="w-4 h-4 text-green-400" />
