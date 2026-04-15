@@ -13,8 +13,25 @@ const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "boq-generator-dev
 
 function classifyError(message: string): { status: number; safeMessage: string } {
   const lower = message.toLowerCase();
+  if (lower.includes("openai fallback is not configured") || lower.includes("openai_api_key")) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI provider failover is not configured yet. Gemini was unavailable and the OpenAI fallback could not run. Please add the OpenAI API key or try resuming later.",
+    };
+  }
   if (lower.includes("429") || lower.includes("quota") || lower.includes("too many requests")) {
     return { status: 429, safeMessage: "AI rate limit reached. Please wait a minute and try again." };
+  }
+  if (
+    (lower.includes("[openai error]: 400") || lower.includes("invalid schema") || lower.includes("response_format")) &&
+    !lower.includes("budget 0 is invalid")
+  ) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI pricing hit a temporary provider response-format issue while retrying providers. Please try resuming this BOQ again now or in a minute.",
+    };
   }
   if (
     lower.includes("400") &&
@@ -45,7 +62,7 @@ function classifyError(message: string): { status: number; safeMessage: string }
   ) {
     return {
       status: 503,
-      safeMessage: "AI service is temporarily unavailable or the Gemini request could not be reached. Please try again in a moment.",
+      safeMessage: "AI service is temporarily unavailable or the provider request could not be reached. Please try again in a moment.",
     };
   }
   return { status: 500, safeMessage: "Rate filling failed. Please try again." };
