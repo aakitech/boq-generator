@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI, SchemaType, type UsageMetadata } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
-import { computeGeminiCostUsd, type GeminiUsageEntry } from "@/lib/gemini-pricing";
+import { computeAICostUsd, type AIProvider, type AIUsageEntry } from "@/lib/gemini-pricing";
 import type {
   BOQArtifacts,
   BOQDocumentType,
@@ -37,7 +37,7 @@ type GenerationInputBundle = {
 };
 
 export type GeminiUsageCollector = {
-  entries: GeminiUsageEntry[];
+  entries: AIUsageEntry[];
 };
 
 type StructurePassResponse = {
@@ -87,6 +87,7 @@ const RATE_PRIMARY_MODEL =
   process.env.GEMINI_RATE_MODEL_PRIMARY || SHARED_FALLBACK_MODEL || "gemini-2.5-flash";
 const RATE_FALLBACK_MODEL =
   process.env.GEMINI_RATE_MODEL_FALLBACK || SHARED_PRIMARY_MODEL || "gemini-2.5-pro";
+const OPENAI_FALLBACK_MODEL = process.env.OPENAI_MODEL_FALLBACK || "gpt-5.4-mini";
 const MAX_ATTEMPTS_PER_MODEL = 3;
 const RATE_FILL_BATCH_SIZE = 24;
 const DEFAULT_MODEL_CANDIDATES = Array.from(
@@ -98,6 +99,9 @@ const SOW_MODEL_CANDIDATES = Array.from(
 const RATE_MODEL_CANDIDATES = Array.from(
   new Set([RATE_PRIMARY_MODEL, RATE_FALLBACK_MODEL, "gemini-2.5-flash"].filter(Boolean))
 );
+const HIGH_DEMAND_RETRY_BASE_MS = 1500;
+const RETRYABLE_RETRY_BASE_MS = 1000;
+const OPENAI_STRUCTURED_OUTPUT_NAME = "structured_response";
 const SOW_HEADING_TERMS = [
   "bill of quantities",
   "boq",
@@ -290,6 +294,22 @@ function isRetryableModelError(error: unknown): boolean {
   );
 }
 
+function isHighDemandModelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    (message.includes("503") || message.includes("service unavailable")) &&
+    (message.includes("high demand") || message.includes("temporarily unavailable"))
+  );
+}
+
+function computeRetryDelayMs(attempt: number, error: unknown): number {
+  const factor = 2 ** Math.max(0, attempt - 1);
+  if (isHighDemandModelError(error)) {
+    return HIGH_DEMAND_RETRY_BASE_MS * factor;
+  }
+  return RETRYABLE_RETRY_BASE_MS * factor;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -306,30 +326,192 @@ function isMalformedJsonError(error: unknown): boolean {
   );
 }
 
+function recordUsage(
+  collector: GeminiUsageCollector | undefined,
+  provider: AIProvider,
+  model: string,
+  operation: string,
+  usageMetadata?: {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    totalTokens?: number | null;
+  },
+) {
+  if (!collector || !usageMetadata) return;
+
+  const inputTokens = usageMetadata.inputTokens ?? 0;
+  const outputTokens = usageMetadata.outputTokens ?? Math.max(0, (usageMetadata.totalTokens ?? 0) - inputTokens);
+  const totalTokens = usageMetadata.totalTokens ?? inputTokens + outputTokens;
+
+  collector.entries.push({
+    operation,
+    provider,
+    model,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: computeAICostUsd({
+      provider,
+      model,
+      inputTokens,
+      outputTokens,
+    }),
+  });
+}
+
 function recordGeminiUsage(
   collector: GeminiUsageCollector | undefined,
   model: string,
   operation: string,
   usageMetadata?: UsageMetadata,
 ) {
-  if (!collector || !usageMetadata) return;
+  return recordUsage(collector, "gemini", model, operation, {
+    inputTokens: usageMetadata?.promptTokenCount ?? 0,
+    outputTokens:
+      usageMetadata?.candidatesTokenCount ??
+      Math.max(0, (usageMetadata?.totalTokenCount ?? 0) - (usageMetadata?.promptTokenCount ?? 0)),
+    totalTokens:
+      usageMetadata?.totalTokenCount ??
+      (usageMetadata?.promptTokenCount ?? 0) + (usageMetadata?.candidatesTokenCount ?? 0),
+  });
+}
 
-  const inputTokens = usageMetadata.promptTokenCount ?? 0;
-  const outputTokens = usageMetadata.candidatesTokenCount ?? Math.max(0, (usageMetadata.totalTokenCount ?? 0) - inputTokens);
-  const totalTokens = usageMetadata.totalTokenCount ?? inputTokens + outputTokens;
+function getOpenAIKey() {
+  return process.env.OPENAI_API_KEY?.trim() || null;
+}
 
-  collector.entries.push({
-    operation,
-    model,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    costUsd: computeGeminiCostUsd({
+function ensureOpenAIConfigured() {
+  const key = getOpenAIKey();
+  if (!key) {
+    throw new Error("OpenAI fallback is not configured. Set OPENAI_API_KEY to enable provider failover.");
+  }
+  return key;
+}
+
+type GeminiSchemaNode = {
+  type?: SchemaType;
+  properties?: Record<string, GeminiSchemaNode>;
+  items?: GeminiSchemaNode;
+  required?: string[];
+  nullable?: boolean;
+  description?: string;
+};
+
+function toOpenAIJsonSchema(node: GeminiSchemaNode): Record<string, unknown> {
+  const baseType = (() => {
+    switch (node.type) {
+      case SchemaType.OBJECT:
+        return "object";
+      case SchemaType.ARRAY:
+        return "array";
+      case SchemaType.STRING:
+        return "string";
+      case SchemaType.NUMBER:
+        return "number";
+      case SchemaType.BOOLEAN:
+        return "boolean";
+      default:
+        return "string";
+    }
+  })();
+
+  const schema: Record<string, unknown> = {};
+  schema.type = node.nullable ? [baseType, "null"] : baseType;
+  if (node.description) schema.description = node.description;
+
+  if (node.type === SchemaType.OBJECT) {
+    const properties = Object.fromEntries(
+      Object.entries(node.properties ?? {}).map(([key, value]) => [key, toOpenAIJsonSchema(value)])
+    );
+    schema.properties = properties;
+    schema.required = node.required ?? Object.keys(node.properties ?? {});
+    schema.additionalProperties = false;
+  } else if (node.type === SchemaType.ARRAY) {
+    schema.items = node.items ? toOpenAIJsonSchema(node.items) : {};
+  }
+
+  return schema;
+}
+
+async function parseOpenAIError(response: Response): Promise<string> {
+  const raw = await response.text();
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string; code?: string; type?: string } };
+    const details = [parsed.error?.message, parsed.error?.type, parsed.error?.code].filter(Boolean).join(" | ");
+    return `[OpenAI Error]: ${response.status} ${response.statusText}${details ? ` - ${details}` : ""}`;
+  } catch {
+    return `[OpenAI Error]: ${response.status} ${response.statusText}${raw ? ` - ${raw}` : ""}`;
+  }
+}
+
+async function generateStructuredContentWithOpenAI<T>({
+  prompt,
+  responseSchema,
+  systemInstruction,
+  temperature,
+  preferredModel,
+  usageCollector,
+  usageOperation,
+}: {
+  prompt: string;
+  responseSchema: object;
+  systemInstruction?: string;
+  temperature: number;
+  preferredModel?: string;
+  usageCollector?: GeminiUsageCollector;
+  usageOperation?: string;
+}): Promise<T> {
+  const apiKey = ensureOpenAIConfigured();
+  const model = preferredModel || OPENAI_FALLBACK_MODEL;
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
       model,
-      inputTokens,
-      outputTokens,
+      temperature,
+      messages: [
+        ...(systemInstruction ? [{ role: "system", content: systemInstruction }] : []),
+        { role: "user", content: prompt },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: OPENAI_STRUCTURED_OUTPUT_NAME,
+          strict: true,
+          schema: toOpenAIJsonSchema(responseSchema as GeminiSchemaNode),
+        },
+      },
     }),
   });
+
+  if (!response.ok) {
+    throw new Error(await parseOpenAIError(response));
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  };
+
+  const content = payload.choices?.[0]?.message?.content;
+  const rawText = Array.isArray(content)
+    ? content
+        .map((part) => (typeof part?.text === "string" ? part.text : ""))
+        .join("")
+    : typeof content === "string"
+      ? content
+      : "";
+
+  recordUsage(usageCollector, "openai", model, usageOperation ?? "structured_content", {
+    inputTokens: payload.usage?.prompt_tokens ?? 0,
+    outputTokens: payload.usage?.completion_tokens ?? 0,
+    totalTokens: payload.usage?.total_tokens ?? 0,
+  });
+
+  return parseJsonResponse<T>(rawText);
 }
 
 async function generateStructuredContent<T>({
@@ -342,6 +524,7 @@ async function generateStructuredContent<T>({
   thinkingBudget = -1,
   usageCollector,
   usageOperation,
+  failoverOnHighDemand = false,
 }: {
   prompt: string;
   responseSchema: object;
@@ -353,25 +536,33 @@ async function generateStructuredContent<T>({
   thinkingBudget?: number;
   usageCollector?: GeminiUsageCollector;
   usageOperation?: string;
+  failoverOnHighDemand?: boolean;
 }): Promise<T> {
   const candidates = Array.from(
     new Set([preferredModel, ...(modelCandidates ?? DEFAULT_MODEL_CANDIDATES)].filter(Boolean))
   ) as string[];
 
   let lastError: unknown;
+  let shouldTryOpenAI = false;
   for (const modelName of candidates) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
       try {
+        // Some Gemini models reject an explicit zero-budget thinking config.
+        // Omit thinkingConfig entirely in that case and let the model default.
+        const generationConfig: Record<string, unknown> = {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema as any,
+          temperature,
+        };
+        if (thinkingBudget !== 0) {
+          generationConfig.thinkingConfig = { thinkingBudget };
+        }
+
         const model = getGenAI().getGenerativeModel({
           model: modelName,
           systemInstruction,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema as any,
-            temperature,
-            thinkingConfig: { thinkingBudget },
-          } as any,
+          generationConfig: generationConfig as any,
         });
         const result = await model.generateContent(prompt);
         recordGeminiUsage(usageCollector, modelName, usageOperation ?? "structured_content", result.response.usageMetadata);
@@ -380,14 +571,20 @@ async function generateStructuredContent<T>({
         lastError = error;
 
         if (isUnavailableModelError(error)) {
+          shouldTryOpenAI = true;
           break;
         }
 
         if (isRetryableModelError(error)) {
+          if (isHighDemandModelError(error) && failoverOnHighDemand && candidates.length > 1) {
+            shouldTryOpenAI = true;
+            break;
+          }
           if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-            await sleep(1000 * attempt);
+            await sleep(computeRetryDelayMs(attempt, error));
             continue;
           }
+          shouldTryOpenAI = true;
           break;
         }
 
@@ -401,6 +598,22 @@ async function generateStructuredContent<T>({
 
         throw error;
       }
+    }
+  }
+
+  if (shouldTryOpenAI) {
+    try {
+      return await generateStructuredContentWithOpenAI<T>({
+        prompt,
+        responseSchema,
+        systemInstruction,
+        temperature,
+        preferredModel: OPENAI_FALLBACK_MODEL,
+        usageCollector,
+        usageOperation,
+      });
+    } catch (openAIError) {
+      lastError = openAIError;
     }
   }
 
@@ -1513,6 +1726,9 @@ export async function validateBOQ(csvText: string): Promise<BOQValidationResult>
     modelCandidates: RATE_MODEL_CANDIDATES,
     responseSchema: BOQ_VALIDATION_SCHEMA,
     temperature: 0,
+    thinkingBudget: 0,
+    failoverOnHighDemand: true,
+    usageOperation: "rate_boq_validation",
     prompt: `Analyse the following spreadsheet data (CSV/table format) and determine whether it is a genuine Bill of Quantities (BOQ).
 
 A valid BOQ has:
@@ -1839,6 +2055,8 @@ async function fillRatesPass(
       modelCandidates: RATE_MODEL_CANDIDATES,
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
+      thinkingBudget: 0,
+      failoverOnHighDemand: true,
       usageCollector: options?.usageCollector,
       usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}

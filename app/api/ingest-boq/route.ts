@@ -63,12 +63,19 @@ export async function POST(req: NextRequest) {
     const measurableItems = workbookBoq.bills.flatMap((bill) =>
       bill.items.filter((item) => !item.is_header && (item.unit || item.qty !== null))
     );
+    const workbookPreservation = workbookBoq.workbook_preservation;
 
     if (measurableItems.length === 0) {
+      const ignoredReasons = workbookPreservation?.per_sheet_stats
+        ?.map((stats) => stats.ignored_reason)
+        .filter(Boolean);
+      const summaryOnly = ignoredReasons?.includes("summary_only");
       return NextResponse.json(
         {
           error:
-            "This spreadsheet does not appear to contain measurable BOQ items. Please upload a BOQ with descriptions, units, and quantities.",
+            summaryOnly
+              ? "This workbook appears to contain summaries or preliminaries only, but no measurable BOQ item sheets we can rate yet."
+              : "This spreadsheet does not appear to contain measurable BOQ items on any supported sheet. Please upload a BOQ with descriptions, units, and quantities.",
         },
         { status: 400 }
       );
@@ -81,8 +88,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const workbookPreservation = workbookBoq.workbook_preservation;
 
     // Upload original Excel to Supabase Storage using service role client (no RLS on bucket)
     const serviceClient = createServiceClient();

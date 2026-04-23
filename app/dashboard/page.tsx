@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
 import { getManualPaymentAdminConfig } from "@/lib/auth/manual-payment-admin";
+import { useCredits } from "@/components/CreditsProvider";
 
 interface BOQRow {
   id: string;
@@ -31,7 +32,7 @@ export default function DashboardPage() {
   const ph = usePostHog();
   const [user, setUser] = useState<User | null>(null);
   const [boqs, setBOQs] = useState<BOQRow[]>([]);
-  const [remainingCredits, setRemainingCredits] = useState(0);
+  const { remainingCredits, loadingCredits } = useCredits();
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
@@ -49,12 +50,6 @@ export default function DashboardPage() {
       if (!user) { router.replace("/login"); return; }
       setUser(user);
       ph.identify(user.id, { email: user.email });
-
-      const creditRes = await fetch("/api/credits");
-      if (creditRes.ok) {
-        const { remainingCredits } = await creditRes.json();
-        setRemainingCredits(remainingCredits ?? 0);
-      }
       const res = await fetch("/api/boqs");
       if (res.ok) {
         const { boqs } = await res.json();
@@ -178,7 +173,7 @@ export default function DashboardPage() {
             <a href="/">
               <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
             </a>
-            <CreditBadge remainingCredits={remainingCredits} />
+            {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} /> : null}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 hidden sm:block">{user?.email}</span>

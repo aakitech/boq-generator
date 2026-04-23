@@ -8,7 +8,7 @@ import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { consumeWalletCredits } from "@/lib/credits";
-import { summarizeGeminiUsage } from "@/lib/gemini-pricing";
+import { summarizeAIUsage } from "@/lib/gemini-pricing";
 import type { GeminiUsageCollector } from "@/lib/claude";
 
 export const runtime = "nodejs";
@@ -33,8 +33,45 @@ function isDuplicateStripeSessionError(error: PostgrestError | null): boolean {
 
 function classifyError(message: string): { status: number; safeMessage: string } {
   const lower = message.toLowerCase();
+  if (lower.includes("openai fallback is not configured") || lower.includes("openai_api_key")) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI provider failover is not configured yet. Gemini was unavailable and the OpenAI fallback could not run. Please add the OpenAI API key or try again later.",
+    };
+  }
   if (lower.includes("429") || lower.includes("quota") || lower.includes("too many requests")) {
     return { status: 429, safeMessage: "AI rate limit reached. Please wait a minute and try again." };
+  }
+  if (
+    (lower.includes("[openai error]: 400") || lower.includes("invalid schema") || lower.includes("response_format")) &&
+    !lower.includes("budget 0 is invalid")
+  ) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI pricing hit a temporary provider response-format issue while retrying providers. Please try again now or resume this BOQ from the dashboard.",
+    };
+  }
+  if (
+    lower.includes("400") &&
+    (lower.includes("budget 0 is invalid") || lower.includes("thinking mode"))
+  ) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI pricing hit a temporary model configuration issue while retrying providers. Please try again now or resume this BOQ from the dashboard.",
+    };
+  }
+  if (
+    (lower.includes("503") || lower.includes("service unavailable")) &&
+    (lower.includes("high demand") || lower.includes("temporarily unavailable"))
+  ) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI pricing is temporarily under heavy demand. We already retried and attempted model failover. Please try again in 1-2 minutes.",
+    };
   }
   if (
     lower.includes("fetch failed") ||
@@ -45,7 +82,7 @@ function classifyError(message: string): { status: number; safeMessage: string }
   ) {
     return {
       status: 503,
-      safeMessage: "AI service is temporarily unavailable or the Gemini request could not be reached. Please try again in a moment.",
+      safeMessage: "AI service is temporarily unavailable or the provider request could not be reached. Please try again in a moment.",
     };
   }
   return { status: 500, safeMessage: "Rate filling failed. Please try again." };
@@ -206,7 +243,7 @@ export async function POST(req: NextRequest) {
     });
     const usageCollector: GeminiUsageCollector = { entries: [] };
     const boq = await fillMissingRatesInExistingBOQ(workbookBoq, effectiveRateContext, usageCollector);
-    const usageSummary = summarizeGeminiUsage(usageCollector.entries);
+    const usageSummary = summarizeAIUsage(usageCollector.entries);
 
     const title = boq.project || "Rated BOQ";
     const itemCount = boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;

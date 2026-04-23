@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import type { BOQBill, BOQDocument, BOQItem, BOQQualitySummary } from "@/lib/types";
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
+import { useCredits } from "@/components/CreditsProvider";
 
 interface DBBoq {
   id: string;
@@ -57,7 +58,7 @@ export default function BOQPage() {
   const [assistantPreview, setAssistantPreview] = useState<AssistantPreview | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [undoCount, setUndoCount] = useState(0);
-  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
+  const { remainingCredits, loadingCredits } = useCredits();
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
@@ -82,17 +83,6 @@ export default function BOQPage() {
     }
     load();
   }, [id, router]);
-
-  useEffect(() => {
-    async function loadCredits() {
-      const res = await fetch("/api/credits");
-      if (!res.ok) return;
-      const body = (await res.json()) as { remainingCredits?: number };
-      setRemainingCredits(body.remainingCredits ?? 0);
-    }
-
-    void loadCredits();
-  }, []);
 
   const saveToDB = useCallback(
     (updated: BOQDocument) => {
@@ -437,7 +427,7 @@ export default function BOQPage() {
               Dashboard
             </a>
           </div>
-          {remainingCredits !== null ? <CreditBadge remainingCredits={remainingCredits} className="shrink-0" /> : null}
+          {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} className="shrink-0" /> : null}
         </div>
         <div className="max-w-[1500px] mx-auto px-4 pb-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">

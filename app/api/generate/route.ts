@@ -6,7 +6,7 @@ import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { computePricing, loadTiers } from "@/lib/pricing";
-import { summarizeGeminiUsage } from "@/lib/gemini-pricing";
+import { summarizeAIUsage } from "@/lib/gemini-pricing";
 import type { GeminiUsageCollector } from "@/lib/claude";
 import type { PostgrestError } from "@supabase/supabase-js";
 
@@ -24,6 +24,13 @@ function isPostgrestError(error: unknown): error is PostgrestError {
 
 function classifyGenerateError(message: string): { status: number; safeMessage: string } {
   const lower = message.toLowerCase();
+  if (lower.includes("openai fallback is not configured") || lower.includes("openai_api_key")) {
+    return {
+      status: 503,
+      safeMessage:
+        "AI provider failover is not configured yet. Gemini was unavailable and the OpenAI fallback could not run. Please add the OpenAI API key or try again later.",
+    };
+  }
   const isQuota =
     lower.includes("429") ||
     lower.includes("quota") ||
@@ -32,6 +39,19 @@ function classifyGenerateError(message: string): { status: number; safeMessage: 
     return {
       status: 429,
       safeMessage: "AI rate limit reached. Please wait a minute and try again.",
+    };
+  }
+
+  const isProviderFormatError =
+    lower.includes("[openai error]: 400") ||
+    lower.includes("invalid schema") ||
+    lower.includes("response_format") ||
+    lower.includes("json_schema");
+
+  if (isProviderFormatError) {
+    return {
+      status: 503,
+      safeMessage: "AI generation hit a temporary provider formatting issue while retrying providers. Please try again in a moment.",
     };
   }
 
@@ -47,7 +67,7 @@ function classifyGenerateError(message: string): { status: number; safeMessage: 
   if (isTemporaryUnavailable) {
     return {
       status: 503,
-      safeMessage: "AI service is temporarily busy. Please try again in a moment.",
+      safeMessage: "AI service is temporarily busy and provider failover did not complete. Please try again in a moment.",
     };
   }
 
@@ -140,7 +160,7 @@ export async function POST(req: NextRequest) {
         usageCollector,
       }
     );
-    const usageSummary = summarizeGeminiUsage(usageCollector.entries);
+    const usageSummary = summarizeAIUsage(usageCollector.entries);
 
     // Compute pricing from the generated BOQ
     const tiers = loadTiers();

@@ -9,6 +9,7 @@ import type { BOQDocumentType, RequiredAttachment, SourceBundleStatus } from "@/
 import BOQPricingCard from "@/components/BOQPricingCard";
 import CreditBadge from "@/components/CreditBadge";
 import ManualPaymentOptions from "@/components/ManualPaymentOptions";
+import { useCredits } from "@/components/CreditsProvider";
 
 type Tab = "generate" | "rate";
 type Stage = "idle" | "extracting" | "ready" | "generating" | "preview" | "paying" | "error";
@@ -73,28 +74,6 @@ function clearGenerationDraftStorage() {
   localStorage.removeItem("boq_source_bundle_status");
 }
 
-function useFreeBoqCredits() {
-  const [remainingCredits, setRemainingCredits] = useState(0);
-  const [loadingCredits, setLoadingCredits] = useState(true);
-
-  async function refreshCredits() {
-    try {
-      const res = await fetch("/api/credits");
-      if (!res.ok) return;
-      const body = (await res.json()) as { remainingCredits?: number };
-      setRemainingCredits(body.remainingCredits ?? 0);
-    } finally {
-      setLoadingCredits(false);
-    }
-  }
-
-  useEffect(() => {
-    void refreshCredits();
-  }, []);
-
-  return { remainingCredits, loadingCredits, refreshCredits, setRemainingCredits };
-}
-
 // ─── Generate BOQ Tab ────────────────────────────────────────────────────────
 
 function GenerateBOQTab() {
@@ -134,7 +113,7 @@ function GenerateBOQTab() {
   const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
   const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
   const ph = usePostHog();
-  const { remainingCredits, refreshCredits, setRemainingCredits } = useFreeBoqCredits();
+  const { remainingCredits, refreshCredits, setRemainingCredits } = useCredits();
   const attachedSupportingCount = supportingUploads.filter((upload) => upload.file).length;
   const processedSupportingCount = supportingUploads.filter((upload) => upload.processedDoc).length;
   const hasAllRequiredAttachments =
@@ -999,7 +978,7 @@ function RateBOQTab() {
   const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
   const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
   const ph = usePostHog();
-  const { remainingCredits, refreshCredits, setRemainingCredits } = useFreeBoqCredits();
+  const { remainingCredits, refreshCredits, setRemainingCredits } = useCredits();
 
   function handleFile(f: File) {
     const name = f.name.toLowerCase();
@@ -1345,6 +1324,12 @@ function RateBOQTab() {
           </div>
         </div>
 
+        {error && (
+          <div className="px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-sm text-left">
+            {error}
+          </div>
+        )}
+
         <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-white/[0.03] border border-white/10 text-left">
           <div className="w-8 h-8 rounded bg-green-500/20 flex items-center justify-center shrink-0">
             <ExcelIcon className="w-4 h-4 text-green-400" />
@@ -1572,7 +1557,7 @@ function RateBOQTab() {
 
 export default function UploadPage() {
   const [activeTab, setActiveTab] = useState<Tab>("generate");
-  const { remainingCredits, loadingCredits } = useFreeBoqCredits();
+  const { remainingCredits, loadingCredits } = useCredits();
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16">

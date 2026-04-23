@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BOQDocument } from "@/lib/types";
 import CreditBadge from "@/components/CreditBadge";
+import { useCredits } from "@/components/CreditsProvider";
 
 function countItems(boq: BOQDocument): number {
   return boq.bills.reduce((sum, bill) => sum + bill.items.filter((item) => !item.is_header).length, 0);
@@ -25,7 +26,7 @@ function totalAmount(boq: BOQDocument): number {
 export default function BOQPreviewPage() {
   const router = useRouter();
   const [boq, setBoq] = useState<BOQDocument | null>(null);
-  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
+  const { remainingCredits, loadingCredits } = useCredits();
 
   useEffect(() => {
     const raw =
@@ -47,17 +48,6 @@ export default function BOQPreviewPage() {
     }
   }, [router]);
 
-  useEffect(() => {
-    async function loadCredits() {
-      const res = await fetch("/api/credits");
-      if (!res.ok) return;
-      const body = (await res.json()) as { remainingCredits?: number };
-      setRemainingCredits(body.remainingCredits ?? 0);
-    }
-
-    void loadCredits();
-  }, []);
-
   const itemCount = useMemo(() => (boq ? countItems(boq) : 0), [boq]);
   const grandTotal = useMemo(() => (boq ? totalAmount(boq) : 0), [boq]);
 
@@ -75,7 +65,7 @@ export default function BOQPreviewPage() {
         <a href="/">
           <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
         </a>
-        {remainingCredits !== null ? <CreditBadge remainingCredits={remainingCredits} /> : null}
+        {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} /> : null}
       </div>
 
       <div className="max-w-5xl mx-auto space-y-6">
