@@ -51,19 +51,31 @@ Acceptance criteria:
 
 Reduce starter credit value from USD 2.50 to USD 1.00.
 
+Also reduce the credit cost of generating a BOQ so the free trial still feels useful. The current BOQ generation cost should move from about USD 2.00 to a lower launch cost, likely USD 0.50-0.75, so the USD 1.00 starter credit gives users at least two SOW-only BOQ generations.
+
+AI assistant usage should also contribute to credit usage instead of being treated as unlimited free usage. Assistant deductions can be smaller than BOQ generation deductions, but they should still make the credit model clear and sustainable.
+
 Implementation notes:
 
 - Update credit conversion constants.
+- Update BOQ generation credit pricing from about USD 2.00 to a proposed USD 0.50-0.75 launch cost.
+- Confirm whether drawings/supporting documents should cost more than SOW-only generation because they use more AI/computing resources.
+- Add credit deduction logic for AI assistant usage, including successful chat responses and any assistant-driven BOQ edits or proposals.
 - Add a database migration for new accounts.
 - Decide whether existing users should keep current balances or be adjusted.
 
 Recommendation:
 
 - For go-live simplicity, apply USD 1.00 value to new accounts only unless there is a strong business reason to adjust existing test accounts.
+- For launch, set SOW-only BOQ generation low enough that starter credits allow a minimum of two generated BOQs.
+- Price assistant usage conservatively at first, then revisit once real usage and AI costs are visible.
 
 Acceptance criteria:
 
 - New users receive the intended free trial credit value.
+- New users can generate at least two SOW-only BOQs from the starter credit allocation.
+- BOQ generation deducts the updated lower credit amount.
+- AI assistant usage deducts credits and is reflected in the user's balance.
 - UI copy reflects the updated credit offer.
 - Credit balance display, checkout, unlock, and assistant usage remain in sync.
 
@@ -166,11 +178,12 @@ Implementation notes:
 
 - Check credit display on home, upload, pricing card, unlock, rated BOQ flow, dashboard badge, and API response.
 - Ensure all successful credit-consuming actions refresh the client-side credit state.
-- Ensure failed unlock/rating/generation does not incorrectly deduct credits.
+- Ensure assistant usage refreshes the same credit state as BOQ generation and unlock actions.
+- Ensure failed unlock/rating/generation/assistant actions do not incorrectly deduct credits.
 
 Acceptance criteria:
 
-- Credits shown in the UI match API/database balance after every unlock/rating action.
+- Credits shown in the UI match API/database balance after every unlock/rating/generation/assistant action.
 - Failed actions do not create confusing stale balances.
 
 ## Phase 2: Reliability Foundation
@@ -374,4 +387,3 @@ Avoid promising:
 3. Should generated schedules/method statements be included in the same BOQ price or become a higher-tier package?
 4. Which Innocent/Nakambala workbook should be treated as the official export template if multiple examples differ?
 5. What is the minimum acceptable BOQ quality threshold for go-live approval?
-
