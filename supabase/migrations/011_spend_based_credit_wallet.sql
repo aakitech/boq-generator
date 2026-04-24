@@ -24,7 +24,7 @@ BEGIN
 
   ALTER TABLE public.credit_events
     ADD CONSTRAINT credit_events_reason_check
-    CHECK (reason IN ('starter_grant', 'starter_reset', 'generate_boq', 'rate_boq', 'manual_refund'));
+    CHECK (reason IN ('starter_grant', 'starter_reset', 'generate_boq', 'rate_boq', 'assistant_boq', 'manual_refund'));
 END $$;
 
 ALTER TABLE public.boqs
@@ -35,11 +35,12 @@ ALTER TABLE public.boqs
   ADD COLUMN IF NOT EXISTS ai_credits_charged INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS ai_usage_breakdown JSONB;
 
-UPDATE public.profiles
-SET
-  wallet_credits_balance = 1000,
-  wallet_credits_granted_at = COALESCE(wallet_credits_granted_at, NOW());
-
+WITH initialized_profiles AS (
+  UPDATE public.profiles
+  SET wallet_credits_granted_at = NOW()
+  WHERE wallet_credits_granted_at IS NULL
+  RETURNING id, wallet_credits_balance
+)
 INSERT INTO public.credit_events (
   user_id,
   delta,
@@ -52,14 +53,14 @@ INSERT INTO public.credit_events (
 )
 SELECT
   p.id,
-  1000,
+  p.wallet_credits_balance,
   2.5,
-  1000,
+  p.wallet_credits_balance,
   'starter_reset',
   'migration',
   '011_spend_based_credit_wallet',
   jsonb_build_object('migration', '011_spend_based_credit_wallet')
-FROM public.profiles p
+FROM initialized_profiles p
 WHERE NOT EXISTS (
   SELECT 1
   FROM public.credit_events e
