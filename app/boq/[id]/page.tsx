@@ -18,6 +18,7 @@ interface DBBoq {
 interface AssistantMessage {
   role: "user" | "assistant";
   content: string;
+  tone?: "default" | "error" | "success";
 }
 
 interface AssistantDiff {
@@ -30,6 +31,15 @@ interface AssistantPreview {
   summary: string;
   proposedBoq: BOQDocument;
   diff: AssistantDiff;
+}
+
+function formatAssistantDiff(diff: AssistantDiff) {
+  const parts = [
+    `Bills ${diff.billDelta >= 0 ? "+" : ""}${diff.billDelta}`,
+    `Items ${diff.itemDelta >= 0 ? "+" : ""}${diff.itemDelta}`,
+    `Priced ${diff.pricedItemsDelta >= 0 ? "+" : ""}${diff.pricedItemsDelta}`,
+  ];
+  return parts.join(" · ");
 }
 
 function unresolvedPlaceholder(item: BOQItem): string | null {
@@ -68,6 +78,13 @@ export default function BOQPage() {
   ]);
   const undoStack = useRef<BOQDocument[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const appendAssistantMessage = useCallback(
+    (content: string, tone: AssistantMessage["tone"] = "default") => {
+      setAssistantMessages((prev) => [...prev, { role: "assistant", content, tone }]);
+    },
+    []
+  );
 
   useEffect(() => {
     async function load() {
@@ -224,6 +241,7 @@ export default function BOQPage() {
         {
           role: "assistant",
           content: "No credits remaining for the AI assistant.",
+          tone: "error",
         },
       ]);
       return;
@@ -321,6 +339,10 @@ export default function BOQPage() {
               proposedBoq: payload.proposed_boq,
               diff: payload.diff,
             });
+            appendAssistantMessage(
+              `Proposal ready. ${summary}\n${formatAssistantDiff(payload.diff)}\nReview it below, then apply or discard it.`,
+              "success"
+            );
             if (typeof payload.remainingCredits === "number") {
               setRemainingCredits(payload.remainingCredits);
             }
@@ -343,6 +365,7 @@ export default function BOQPage() {
         {
           role: "assistant",
           content: message,
+          tone: "error",
         },
       ]);
     } finally {
@@ -353,16 +376,17 @@ export default function BOQPage() {
 
   function handleApplyPreview() {
     if (!boq || !assistantPreview) return;
+    const diffSummary = formatAssistantDiff(assistantPreview.diff);
     undoStack.current.push(boq);
     setUndoCount(undoStack.current.length);
     updateBOQ(assistantPreview.proposedBoq);
-    setAssistantMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content: "Applied proposed BOQ changes.",
-      },
-    ]);
+    appendAssistantMessage(`Applied proposed BOQ changes.\n${diffSummary}`, "success");
+    setAssistantPreview(null);
+  }
+
+  function handleDiscardPreview() {
+    if (!assistantPreview) return;
+    appendAssistantMessage("Discarded the proposal. Your BOQ has not been changed.", "default");
     setAssistantPreview(null);
   }
 
@@ -371,10 +395,7 @@ export default function BOQPage() {
     if (!previous) return;
     setUndoCount(undoStack.current.length);
     updateBOQ(previous);
-    setAssistantMessages((prev) => [
-      ...prev,
-      { role: "assistant", content: "Reverted the last AI-applied BOQ changes." },
-    ]);
+    appendAssistantMessage("Reverted the last AI-applied BOQ changes.", "success");
   }
 
   if (loading) {
@@ -620,7 +641,7 @@ export default function BOQPage() {
                   assistantPreview={assistantPreview}
                   onUndo={handleUndoLastAIEdit}
                   onPickPrompt={setAssistantInput}
-                  onDiscardPreview={() => setAssistantPreview(null)}
+                  onDiscardPreview={handleDiscardPreview}
                   onApplyPreview={handleApplyPreview}
                   onSubmit={handleAssistantSubmit}
                   onInputChange={setAssistantInput}
@@ -651,7 +672,7 @@ export default function BOQPage() {
                 assistantPreview={assistantPreview}
                 onUndo={handleUndoLastAIEdit}
                 onPickPrompt={setAssistantInput}
-                onDiscardPreview={() => setAssistantPreview(null)}
+                onDiscardPreview={handleDiscardPreview}
                 onApplyPreview={handleApplyPreview}
                 onSubmit={handleAssistantSubmit}
                 onInputChange={setAssistantInput}
@@ -791,14 +812,22 @@ function AssistantPanel({
                   className={`max-w-[95%] rounded-lg px-3 py-2 text-xs leading-relaxed ${
                     message.role === "user"
                       ? "ml-auto bg-white/10 text-white border border-white/15"
-                      : "mr-auto bg-white/[0.04] text-gray-300 border border-white/10"
+                      : message.tone === "error"
+                        ? "mr-auto bg-red-500/10 text-red-100 border border-red-500/20"
+                        : message.tone === "success"
+                          ? "mr-auto bg-emerald-500/10 text-emerald-100 border border-emerald-500/20"
+                        : "mr-auto bg-white/[0.04] text-gray-300 border border-white/10"
                   }`}
                 >
+                  <p className="mb-1 text-[10px] uppercase tracking-wide text-white/45">
+                    {message.role === "user" ? "You" : "BOQ Assistant"}
+                  </p>
                   {message.role === "assistant" && !message.content ? (
                     <span className="flex flex-col gap-2">
                       {assistantStatus && (
                         <span className="text-[11px] text-gray-500">{assistantStatus}</span>
                       )}
+                      <span className="text-[11px] text-gray-400">AI is typing...</span>
                       <span className="inline-flex gap-1.5 items-center h-5">
                         <span className="w-2 h-2 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "0ms" }} />
                         <span className="w-2 h-2 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: "160ms" }} />
@@ -806,7 +835,15 @@ function AssistantPanel({
                       </span>
                     </span>
                   ) : message.role === "assistant" && assistantBusy && idx === assistantMessages.length - 1 ? (
-                    <p className="whitespace-pre-wrap break-words">{displayMessage(message.content)}<span className="inline-block w-0.5 h-3.5 bg-gray-400 ml-0.5 animate-pulse align-middle" /></p>
+                    <span className="flex flex-col gap-1.5">
+                      {assistantStatus && (
+                        <span className="text-[11px] text-gray-500">{assistantStatus}</span>
+                      )}
+                      <p className="whitespace-pre-wrap break-words">
+                        {displayMessage(message.content)}
+                        <span className="inline-block w-0.5 h-3.5 bg-gray-400 ml-0.5 animate-pulse align-middle" />
+                      </p>
+                    </span>
                   ) : (
                     <p className="whitespace-pre-wrap break-words">{displayMessage(message.content)}</p>
                   )}
