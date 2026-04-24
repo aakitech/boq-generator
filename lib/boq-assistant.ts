@@ -1,10 +1,11 @@
-import { GoogleGenerativeAI, type UsageMetadata } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType, type UsageMetadata } from "@google/generative-ai";
 import type { BOQDocument } from "./types";
 import { computeAICostUsd, type AIUsageEntry } from "./gemini-pricing";
 import { getServerEnv } from "./server-env";
 
 const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY || "gemini-2.5-pro";
 const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-flash";
+const OPENAI_FALLBACK_MODEL = process.env.OPENAI_MODEL_FALLBACK || "gpt-5.4-mini";
 const MAX_ATTEMPTS_PER_MODEL = 2;
 
 export type AssistantUsageCollector = {
@@ -21,6 +22,61 @@ export interface AssistantEditResult {
   summary: string;
   proposed_boq: BOQDocument;
 }
+
+type GeminiSchemaNode = {
+  type?: SchemaType;
+  properties?: Record<string, GeminiSchemaNode>;
+  items?: GeminiSchemaNode;
+  required?: string[];
+  nullable?: boolean;
+  description?: string;
+};
+
+const ASSISTANT_RESULT_SCHEMA: GeminiSchemaNode = {
+  type: SchemaType.OBJECT,
+  properties: {
+    summary: { type: SchemaType.STRING },
+    proposed_boq: {
+      type: SchemaType.OBJECT,
+      properties: {
+        project: { type: SchemaType.STRING },
+        location: { type: SchemaType.STRING },
+        prepared_by: { type: SchemaType.STRING },
+        date: { type: SchemaType.STRING },
+        bills: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              number: { type: SchemaType.NUMBER },
+              title: { type: SchemaType.STRING },
+              items: {
+                type: SchemaType.ARRAY,
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    item_no: { type: SchemaType.STRING, nullable: true },
+                    description: { type: SchemaType.STRING },
+                    unit: { type: SchemaType.STRING, nullable: true },
+                    qty: { type: SchemaType.NUMBER, nullable: true },
+                    rate: { type: SchemaType.NUMBER, nullable: true },
+                    amount: { type: SchemaType.NUMBER, nullable: true },
+                    is_header: { type: SchemaType.BOOLEAN, nullable: true },
+                    note: { type: SchemaType.STRING, nullable: true },
+                  },
+                  required: ["description"],
+                },
+              },
+            },
+            required: ["number", "title", "items"],
+          },
+        },
+      },
+      required: ["project", "location", "prepared_by", "date", "bills"],
+    },
+  },
+  required: ["summary", "proposed_boq"],
+};
 
 const SYSTEM_PROMPT = `You are a BOQ editing assistant.
 
@@ -60,6 +116,98 @@ function isTransientGeminiError(err: unknown): boolean {
     msg.includes("no longer available") ||
     (msg.includes("model") && msg.includes("not found"))
   );
+}
+
+function getOpenAIKey() {
+  return getServerEnv("OPENAI_API_KEY");
+}
+
+function ensureOpenAIConfigured() {
+  const key = getOpenAIKey();
+  if (!key) {
+    throw new Error("OpenAI assistant fallback is not configured. Set OPENAI_API_KEY to enable it.");
+  }
+  return key;
+}
+
+function toOpenAIJsonSchema(node: GeminiSchemaNode): Record<string, unknown> {
+  const baseType = (() => {
+    switch (node.type) {
+      case SchemaType.OBJECT:
+        return "object";
+      case SchemaType.ARRAY:
+        return "array";
+      case SchemaType.STRING:
+        return "string";
+      case SchemaType.NUMBER:
+        return "number";
+      case SchemaType.BOOLEAN:
+        return "boolean";
+      default:
+        return "string";
+    }
+  })();
+
+  const schema: Record<string, unknown> = {
+    type: node.nullable ? [baseType, "null"] : baseType,
+  };
+
+  if (node.description) schema.description = node.description;
+
+  if (node.type === SchemaType.OBJECT) {
+    const requiredKeys = new Set(node.required ?? []);
+    schema.properties = Object.fromEntries(
+      Object.entries(node.properties ?? {}).map(([key, value]) => {
+        const normalized = !requiredKeys.has(key) && !value.nullable ? { ...value, nullable: true } : value;
+        return [key, toOpenAIJsonSchema(normalized)];
+      })
+    );
+    schema.required = Object.keys(node.properties ?? {});
+    schema.additionalProperties = false;
+  } else if (node.type === SchemaType.ARRAY) {
+    schema.items = node.items ? toOpenAIJsonSchema(node.items) : {};
+  }
+
+  return schema;
+}
+
+async function parseOpenAIError(response: Response): Promise<string> {
+  const raw = await response.text();
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string; code?: string; type?: string } };
+    const details = [parsed.error?.message, parsed.error?.type, parsed.error?.code].filter(Boolean).join(" | ");
+    return `[OpenAI Error]: ${response.status} ${response.statusText}${details ? ` - ${details}` : ""}`;
+  } catch {
+    return `[OpenAI Error]: ${response.status} ${response.statusText}${raw ? ` - ${raw}` : ""}`;
+  }
+}
+
+function recordOpenAIUsage(
+  collector: AssistantUsageCollector | undefined,
+  model: string,
+  operation: string,
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number },
+) {
+  if (!collector || !usage) return;
+
+  const inputTokens = usage.prompt_tokens ?? 0;
+  const outputTokens = usage.completion_tokens ?? 0;
+  const totalTokens = usage.total_tokens ?? inputTokens + outputTokens;
+
+  collector.entries.push({
+    operation,
+    provider: "openai",
+    model,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: computeAICostUsd({
+      provider: "openai",
+      model,
+      inputTokens,
+      outputTokens,
+    }),
+  });
 }
 
 function recordGeminiUsage(
@@ -160,6 +308,133 @@ function parseAssistantJson(raw: string): { summary: string; proposed_boq: BOQDo
   }
 }
 
+async function runAssistantModelWithOpenAI(
+  currentBoq: BOQDocument,
+  instruction: string,
+  usageCollector?: AssistantUsageCollector,
+): Promise<AssistantEditResult> {
+  const apiKey = ensureOpenAIConfigured();
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_FALLBACK_MODEL,
+      temperature: 0.1,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            "Current BOQ JSON:",
+            JSON.stringify(currentBoq),
+            "",
+            "User edit instruction:",
+            instruction,
+            "",
+            'Return strict JSON with shape: {"summary": string, "proposed_boq": BOQDocument }',
+          ].join("\n"),
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "assistant_edit_result",
+          strict: true,
+          schema: toOpenAIJsonSchema(ASSISTANT_RESULT_SCHEMA),
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseOpenAIError(response));
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  };
+
+  const content = payload.choices?.[0]?.message?.content;
+  const rawText = Array.isArray(content)
+    ? content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("")
+    : typeof content === "string"
+      ? content
+      : "";
+
+  recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_proposal", payload.usage);
+
+  const parsed = parseAssistantJson(rawText);
+  const proposed = normalizeBoq(parsed.proposed_boq, currentBoq);
+
+  if (!proposed || !Array.isArray(proposed.bills)) {
+    throw new Error("Assistant returned invalid BOQ structure");
+  }
+
+  return {
+    summary: parsed.summary || "Prepared BOQ edits from your instruction.",
+    proposed_boq: proposed,
+  };
+}
+
+async function runAssistantSummaryWithOpenAI(
+  currentBoq: BOQDocument,
+  instruction: string,
+  onToken: (token: string) => void,
+  usageCollector?: AssistantUsageCollector,
+): Promise<void> {
+  const apiKey = ensureOpenAIConfigured();
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_FALLBACK_MODEL,
+      temperature: 0.1,
+      messages: [
+        { role: "system", content: STREAM_SUMMARY_PROMPT },
+        {
+          role: "user",
+          content: [
+            "Current BOQ JSON:",
+            JSON.stringify(currentBoq),
+            "",
+            "User edit instruction:",
+            instruction,
+          ].join("\n"),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseOpenAIError(response));
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  };
+
+  const content = payload.choices?.[0]?.message?.content;
+  const rawText = Array.isArray(content)
+    ? content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("")
+    : typeof content === "string"
+      ? content
+      : "";
+
+  recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_summary", payload.usage);
+
+  if (rawText.trim()) {
+    onToken(rawText.trim());
+  }
+}
+
 function normalizeBoq(candidate: unknown, fallback: BOQDocument): BOQDocument {
   const source = (candidate && typeof candidate === "object"
     ? (candidate as Record<string, unknown>)
@@ -238,7 +513,7 @@ export async function proposeBOQEditWithAI(
       } catch (err) {
         lastError = err;
         if (!isTransientGeminiError(err)) {
-          throw err;
+          break;
         }
 
         const isLastAttempt = attempt === MAX_ATTEMPTS_PER_MODEL;
@@ -250,9 +525,13 @@ export async function proposeBOQEditWithAI(
     }
   }
 
-  throw lastError instanceof Error
-    ? new Error(`Gemini assistant temporarily unavailable: ${lastError.message}`)
-    : new Error("Gemini assistant temporarily unavailable");
+  try {
+    return await runAssistantModelWithOpenAI(currentBoq, instruction, usageCollector);
+  } catch (openAIError) {
+    const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
+    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
+    throw new Error(`Gemini assistant failed: ${geminiMessage}. OpenAI fallback failed: ${openAIMessage}`);
+  }
 }
 
 export async function streamAssistantSummary(
@@ -297,12 +576,17 @@ export async function streamAssistantSummary(
     } catch (err) {
       lastError = err;
       if (!isTransientGeminiError(err)) {
-        throw err;
+        break;
       }
     }
   }
 
-  throw lastError instanceof Error
-    ? new Error(`Gemini assistant temporarily unavailable: ${lastError.message}`)
-    : new Error("Gemini assistant temporarily unavailable");
+  try {
+    await runAssistantSummaryWithOpenAI(currentBoq, instruction, onToken, usageCollector);
+    return;
+  } catch (openAIError) {
+    const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
+    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
+    throw new Error(`Gemini assistant failed: ${geminiMessage}. OpenAI fallback failed: ${openAIMessage}`);
+  }
 }
