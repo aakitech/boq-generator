@@ -29,6 +29,36 @@ type SupportingUpload = {
   error?: string | null;
 };
 
+function formatAttachmentLabel(type: RequiredAttachment["type"]) {
+  switch (type) {
+    case "drawing":
+      return "Drawings";
+    case "schedule":
+      return "Schedules";
+    case "spec":
+      return "Specifications";
+    case "boq":
+      return "Existing BOQ";
+    default:
+      return "Supporting document";
+  }
+}
+
+function summarizeAttachmentNeed(type: RequiredAttachment["type"]) {
+  switch (type) {
+    case "drawing":
+      return "Helpful if the scope refers to layouts, details, or dimensions.";
+    case "schedule":
+      return "Helpful if the scope refers to room schedules, programmes, or activity lists.";
+    case "spec":
+      return "Helpful if the scope depends on technical specifications or material standards.";
+    case "boq":
+      return "Helpful if you want the new BOQ to follow an existing format or baseline.";
+    default:
+      return "Add this only if it gives useful project context.";
+  }
+}
+
 const PAYMENT_MODE =
   process.env.NEXT_PUBLIC_PAYMENT_PROVIDER === "manual_whatsapp"
     ? process.env.NODE_ENV === "production"
@@ -622,60 +652,26 @@ function GenerateBOQTab() {
                       ? "You can continue with the SOW only. Adding drawings or supporting documents may improve accuracy."
                       : "This document contains enough construction scope signals to proceed with BOQ generation.")}
                 </p>
-                <div className="flex flex-wrap gap-2 text-[11px] text-white/80">
-                  <span className="px-2 py-1 rounded bg-white/10">
-                    Type: {classification.documentType ?? "unknown"}
-                  </span>
-                  <span className="px-2 py-1 rounded bg-white/10">
-                    Bundle: {classification.sourceBundleStatus.replaceAll("_", " ")}
-                  </span>
-                  {classification.confidence !== null && (
-                    <span className="px-2 py-1 rounded bg-white/10">
-                      Confidence: {(classification.confidence * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
-
-            {classification.positiveSignals.length > 0 && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-gray-300 mb-1">Why it passed</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {classification.positiveSignals.map((signal) => (
-                    <span key={signal} className="text-[11px] px-2 py-1 rounded bg-green-500/15 text-green-100">
-                      {signal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {classification.negativeSignals.length > 0 && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-gray-300 mb-1">Why it failed</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {classification.negativeSignals.map((signal) => (
-                    <span key={signal} className="text-[11px] px-2 py-1 rounded bg-yellow-500/15 text-yellow-100">
-                      {signal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {classification.requiredAttachments.length > 0 && (
               <div className="space-y-2">
                 <p className="text-[11px] uppercase tracking-wide text-gray-300">
                   {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
                 </p>
+                {!classification.shouldBlockGeneration && (
+                  <p className="text-[11px] text-gray-400">
+                    Only add these if you already have them and want a better result.
+                  </p>
+                )}
                 {classification.requiredAttachments.map((attachment, index) => {
                   const current = supportingUploads[index];
                   return (
                     <div key={`${attachment.type}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs text-white capitalize">{attachment.type}</p>
-                        <p className="text-[11px] text-gray-400">{attachment.reason}</p>
+                        <p className="text-xs text-white">{formatAttachmentLabel(attachment.type)}</p>
+                        <p className="text-[11px] text-gray-400">{summarizeAttachmentNeed(attachment.type)}</p>
                         {current?.file && (
                           <p className="text-[11px] text-green-200 mt-1 truncate">{current.file.name}</p>
                         )}
@@ -719,20 +715,10 @@ function GenerateBOQTab() {
 
             {bundleDocs.length > 0 && (
               <div>
-                <p className="text-[11px] uppercase tracking-wide text-gray-300 mb-1">Source bundle</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {bundleDocs.map((doc) => (
-                    <span key={doc.document_id} className="text-[11px] px-2 py-1 rounded bg-white/10 text-gray-100">
-                      {doc.role === "primary" ? "Primary" : "Attachment"}: {doc.name}
-                    </span>
-                  ))}
-                </div>
                 <p className="text-[11px] text-gray-400 mt-2">
-                  {bundleDocs.length} document{bundleDocs.length === 1 ? "" : "s"} ready for generation.
-                  {" "}
                   {processedSupportingCount > 0
-                    ? `${processedSupportingCount} attachment${processedSupportingCount === 1 ? "" : "s"} processed.`
-                    : "No supporting attachments processed yet."}
+                    ? `${processedSupportingCount} supporting document${processedSupportingCount === 1 ? "" : "s"} added.`
+                    : "SOW ready for generation."}
                 </p>
               </div>
             )}
