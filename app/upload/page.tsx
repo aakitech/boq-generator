@@ -147,6 +147,10 @@ function GenerateBOQTab() {
     return "Generate BOQ →";
   }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, remainingCredits, stage]);
 
+  const hasOptionalSupportingDocs = Boolean(
+    classification && !classification.shouldBlockGeneration && classification.requiredAttachments.length > 0
+  );
+
   function handleFile(f: File) {
     const name = f.name.toLowerCase();
     if (!name.endsWith(".pdf") && !name.endsWith(".docx")) {
@@ -614,7 +618,9 @@ function GenerateBOQTab() {
                 </p>
                 <p className="text-xs text-white/90">
                   {sowWarning ||
-                    "This document contains enough construction scope signals to proceed with BOQ generation."}
+                    (hasOptionalSupportingDocs
+                      ? "You can continue with the SOW only. Adding drawings or supporting documents may improve accuracy."
+                      : "This document contains enough construction scope signals to proceed with BOQ generation.")}
                 </p>
                 <div className="flex flex-wrap gap-2 text-[11px] text-white/80">
                   <span className="px-2 py-1 rounded bg-white/10">
@@ -660,7 +666,9 @@ function GenerateBOQTab() {
 
             {classification.requiredAttachments.length > 0 && (
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-wide text-gray-300">Required attachments</p>
+                <p className="text-[11px] uppercase tracking-wide text-gray-300">
+                  {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
+                </p>
                 {classification.requiredAttachments.map((attachment, index) => {
                   const current = supportingUploads[index];
                   return (
@@ -759,7 +767,7 @@ function GenerateBOQTab() {
               <div>
                 <p className="text-sm font-medium text-white">Starter credits available</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  This rate fill will use credits based on actual AI usage before paid options are needed.
+                  Your starter credits apply first, so you can keep going before paid options are needed.
                 </p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />
@@ -775,7 +783,7 @@ function GenerateBOQTab() {
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">1,000 starter credits for new accounts</p>
+              <p className="text-xs text-gray-500">1,000 starter credits worth $1.00</p>
             </div>
           </div>
           <ul className="space-y-2">
@@ -1347,7 +1355,7 @@ function RateBOQTab() {
               <div>
                 <p className="text-sm font-medium text-white">Starter credits available</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  This rate fill will use credits based on actual AI usage before paid options are needed.
+                  Your starter credits apply first, so you can keep going before paid options are needed.
                 </p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />

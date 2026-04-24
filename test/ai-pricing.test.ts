@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeAICostUsd, summarizeAIUsage } from "@/lib/gemini-pricing";
+import {
+  computeAICostUsd,
+  creditsForAssistantEdit,
+  creditsForGeneratedBoq,
+  summarizeAIUsage,
+} from "@/lib/gemini-pricing";
 
 describe("computeAICostUsd", () => {
   it("uses Gemini pricing for Gemini entries", () => {
@@ -54,5 +59,15 @@ describe("summarizeAIUsage", () => {
     expect(summary.costUsd).toBe(0.00041);
     expect(summary.creditsCharged).toBe(1);
     expect(summary.entries).toHaveLength(2);
+  });
+});
+
+describe("go-live credit targets", () => {
+  it("prices generated BOQs to allow at least two from starter credits", () => {
+    expect(creditsForGeneratedBoq()).toBe(500);
+  });
+
+  it("prices assistant edits below BOQ generation", () => {
+    expect(creditsForAssistantEdit()).toBe(50);
   });
 });

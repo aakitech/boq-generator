@@ -58,7 +58,7 @@ export default function BOQPage() {
   const [assistantPreview, setAssistantPreview] = useState<AssistantPreview | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [undoCount, setUndoCount] = useState(0);
-  const { remainingCredits, loadingCredits } = useCredits();
+  const { remainingCredits, loadingCredits, refreshCredits, setRemainingCredits } = useCredits();
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
@@ -218,6 +218,16 @@ export default function BOQPage() {
 
   async function handleAssistantSubmit() {
     if (!boq || assistantBusy) return;
+    if (remainingCredits < 1) {
+      setAssistantMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "No credits remaining for the AI assistant.",
+        },
+      ]);
+      return;
+    }
 
     const instruction = assistantInput.trim();
     if (!instruction) return;
@@ -284,6 +294,7 @@ export default function BOQPage() {
             proposed_boq?: BOQDocument;
             diff?: AssistantDiff;
             message?: string;
+            remainingCredits?: number;
           };
 
           if (eventType === "status") {
@@ -310,6 +321,9 @@ export default function BOQPage() {
               proposedBoq: payload.proposed_boq,
               diff: payload.diff,
             });
+            if (typeof payload.remainingCredits === "number") {
+              setRemainingCredits(payload.remainingCredits);
+            }
           }
 
           if (eventType === "error") {
@@ -323,6 +337,7 @@ export default function BOQPage() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Assistant failed";
+      await refreshCredits();
       setAssistantMessages((prev) => [
         ...prev.slice(0, -1),
         {

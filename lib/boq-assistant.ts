@@ -1,9 +1,14 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, type UsageMetadata } from "@google/generative-ai";
 import type { BOQDocument } from "./types";
+import { computeAICostUsd, type AIUsageEntry } from "./gemini-pricing";
 
 const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY || "gemini-2.5-pro";
 const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-flash";
 const MAX_ATTEMPTS_PER_MODEL = 2;
+
+export type AssistantUsageCollector = {
+  entries: AIUsageEntry[];
+};
 
 function getGenAI() {
   const key = process.env.GEMINI_API_KEY;
@@ -56,10 +61,41 @@ function isTransientGeminiError(err: unknown): boolean {
   );
 }
 
+function recordGeminiUsage(
+  collector: AssistantUsageCollector | undefined,
+  model: string,
+  operation: string,
+  usageMetadata?: UsageMetadata,
+) {
+  if (!collector || !usageMetadata) return;
+
+  const inputTokens = usageMetadata.promptTokenCount ?? 0;
+  const outputTokens =
+    usageMetadata.candidatesTokenCount ??
+    Math.max(0, (usageMetadata.totalTokenCount ?? 0) - inputTokens);
+  const totalTokens = usageMetadata.totalTokenCount ?? inputTokens + outputTokens;
+
+  collector.entries.push({
+    operation,
+    provider: "gemini",
+    model,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: computeAICostUsd({
+      provider: "gemini",
+      model,
+      inputTokens,
+      outputTokens,
+    }),
+  });
+}
+
 async function runAssistantModel(
   modelName: string,
   currentBoq: BOQDocument,
-  instruction: string
+  instruction: string,
+  usageCollector?: AssistantUsageCollector,
 ): Promise<AssistantEditResult> {
   const model = getGenAI().getGenerativeModel({
     model: modelName,
@@ -85,6 +121,7 @@ async function runAssistantModel(
   );
 
   const parsed = parseAssistantJson(result.response.text());
+  recordGeminiUsage(usageCollector, modelName, "assistant_proposal", result.response.usageMetadata);
   const proposed = normalizeBoq(parsed.proposed_boq, currentBoq);
 
   if (!proposed || !Array.isArray(proposed.bills)) {
@@ -184,7 +221,8 @@ function normalizeBoq(candidate: unknown, fallback: BOQDocument): BOQDocument {
 
 export async function proposeBOQEditWithAI(
   currentBoq: BOQDocument,
-  instruction: string
+  instruction: string,
+  usageCollector?: AssistantUsageCollector,
 ): Promise<AssistantEditResult> {
   const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
     (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
@@ -195,7 +233,7 @@ export async function proposeBOQEditWithAI(
   for (const modelName of models) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
       try {
-        return await runAssistantModel(modelName, currentBoq, instruction);
+        return await runAssistantModel(modelName, currentBoq, instruction, usageCollector);
       } catch (err) {
         lastError = err;
         if (!isTransientGeminiError(err)) {
@@ -219,7 +257,8 @@ export async function proposeBOQEditWithAI(
 export async function streamAssistantSummary(
   currentBoq: BOQDocument,
   instruction: string,
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  usageCollector?: AssistantUsageCollector,
 ): Promise<void> {
   const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
     (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
@@ -249,6 +288,9 @@ export async function streamAssistantSummary(
         const token = chunk.text();
         if (token) onToken(token);
       }
+
+      const finalResponse = await stream.response;
+      recordGeminiUsage(usageCollector, modelName, "assistant_summary", finalResponse.usageMetadata);
 
       return;
     } catch (err) {

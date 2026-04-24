@@ -647,6 +647,38 @@ function inferSourceBundleStatus(
   return "complete";
 }
 
+function toOptionalSupportingAttachments(requiredAttachments: RequiredAttachment[]): RequiredAttachment[] {
+  return requiredAttachments.map((attachment) => ({
+    ...attachment,
+    required: false,
+  }));
+}
+
+function applyGoLiveSOWRules(result: SOWValidationResult): SOWValidationResult {
+  if (!result.isSOW) return result;
+
+  const optionalAttachments = toOptionalSupportingAttachments(result.required_attachments ?? []);
+  const hasOptionalAttachments = optionalAttachments.length > 0;
+
+  return {
+    ...result,
+    should_block_generation: false,
+    required_attachments: optionalAttachments,
+    source_bundle_status:
+      result.source_bundle_status === "missing_required_attachments" || hasOptionalAttachments
+        ? "partial_optional_context"
+        : result.source_bundle_status,
+    flags: hasOptionalAttachments
+      ? Array.from(
+          new Set([
+            ...result.flags,
+            "SOW-only generation is allowed. Supporting drawings/documents may improve accuracy but are optional.",
+          ])
+        ).slice(0, 6)
+      : result.flags,
+  };
+}
+
 function normalizeSourceDocumentType(
   type: GenerationInputDocument["document_type"] | undefined,
   role: "primary" | "supporting"
@@ -1377,7 +1409,7 @@ ${preview}`,
     }
 
     if (heuristic.isSOW && llm.isSOW) {
-      return {
+      return applyGoLiveSOWRules({
         isSOW: true,
         reason: llm.reason || heuristic.reason,
         confidence: clamp01(Math.max(heuristic.confidence, llm.confidence ?? 0.65)),
@@ -1397,13 +1429,13 @@ ${preview}`,
           new Set([...(heuristic.negative_signals ?? []), ...(llm.negative_signals ?? [])])
         ).slice(0, 6),
         flags: Array.from(new Set([...heuristic.flags, ...(llm.flags ?? [])])).slice(0, 6),
-      };
+      });
     }
 
-    return heuristic.confidence >= (llm.confidence ?? 0.5) ? heuristic : llm;
+    return applyGoLiveSOWRules(heuristic.confidence >= (llm.confidence ?? 0.5) ? heuristic : llm);
   } catch (error) {
     logger.warn("validateSOW falling back to heuristic classification", { error: String(error) });
-    return heuristic;
+    return applyGoLiveSOWRules(heuristic);
   }
 }
 

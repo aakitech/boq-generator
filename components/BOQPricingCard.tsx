@@ -87,7 +87,7 @@ export default function BOQPricingCard({
             </p>
             <p className="text-gray-400 text-sm mt-0.5">
               {hasFreeCredits
-                ? "Start testing now. Credit usage depends on the actual AI work for this BOQ."
+                ? "Use your starter credits first. Paid checkout only appears after those are used."
                 : usesManualPayment
                   ? "Chat with our team on WhatsApp, complete payment, then we will unlock this BOQ."
                   : "One-time instant access"}
@@ -101,7 +101,7 @@ export default function BOQPricingCard({
 
         <div className="rounded-lg bg-white/[0.03] border border-white/10 px-3 py-2 text-xs text-gray-400">
           {hasFreeCredits ? (
-            <>This BOQ will use <span className="text-gray-200 font-medium">credits based on actual AI usage</span> from your account.</>
+            <>This BOQ will unlock using <span className="text-gray-200 font-medium">your starter credits first</span>.</>
           ) : usesManualPayment ? (
             <>Quoted unlock price: <span className="text-gray-200 font-medium">{tier.displayUsd}</span>. Access opens after manual payment is confirmed.</>
           ) : (

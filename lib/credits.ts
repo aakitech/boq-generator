@@ -3,7 +3,7 @@ import { STARTER_WALLET_CREDITS } from "@/lib/gemini-pricing";
 
 export const STARTER_CREDITS = STARTER_WALLET_CREDITS;
 
-export type CreditConsumptionReason = "generate_boq" | "rate_boq";
+export type CreditConsumptionReason = "generate_boq" | "rate_boq" | "assistant_boq";
 
 type CreditStatus = "consumed" | "already_consumed" | "insufficient";
 
