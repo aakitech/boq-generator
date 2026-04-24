@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, SchemaType, type UsageMetadata } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { computeAICostUsd, type AIProvider, type AIUsageEntry } from "@/lib/gemini-pricing";
+import { getServerEnv } from "@/lib/server-env";
 import type {
   BOQArtifacts,
   BOQDocumentType,
@@ -377,7 +378,7 @@ function recordGeminiUsage(
 }
 
 function getOpenAIKey() {
-  return process.env.OPENAI_API_KEY?.trim() || null;
+  return getServerEnv("OPENAI_API_KEY");
 }
 
 function ensureOpenAIConfigured() {
@@ -420,11 +421,23 @@ function toOpenAIJsonSchema(node: GeminiSchemaNode): Record<string, unknown> {
   if (node.description) schema.description = node.description;
 
   if (node.type === SchemaType.OBJECT) {
+    const requiredKeys = new Set(node.required ?? []);
     const properties = Object.fromEntries(
-      Object.entries(node.properties ?? {}).map(([key, value]) => [key, toOpenAIJsonSchema(value)])
+      Object.entries(node.properties ?? {}).map(([key, value]) => {
+        const isOptional = !requiredKeys.has(key);
+        const normalizedValue =
+          isOptional && !value.nullable
+            ? {
+                ...value,
+                nullable: true,
+              }
+            : value;
+
+        return [key, toOpenAIJsonSchema(normalizedValue)];
+      })
     );
     schema.properties = properties;
-    schema.required = node.required ?? Object.keys(node.properties ?? {});
+    schema.required = Object.keys(node.properties ?? {});
     schema.additionalProperties = false;
   } else if (node.type === SchemaType.ARRAY) {
     schema.items = node.items ? toOpenAIJsonSchema(node.items) : {};
@@ -875,7 +888,7 @@ function inferSOWHeuristics(text: string, supportingDocsCount = 0): SOWValidatio
 }
 
 function getGenAI() {
-  const key = process.env.GEMINI_API_KEY;
+  const key = getServerEnv("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
   return new GoogleGenerativeAI(key);
 }

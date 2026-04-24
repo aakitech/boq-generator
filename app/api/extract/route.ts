@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import mammoth from "mammoth";
 import { validateSOW } from "@/lib/claude";
+import { getServerEnv } from "@/lib/server-env";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParse = require("pdf-parse") as (
@@ -71,7 +72,7 @@ function classifyExtractionError(error: unknown): { status: number; message: str
 }
 
 function getVisionClient() {
-  const key = process.env.GEMINI_API_KEY;
+  const key = getServerEnv("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
   return new GoogleGenerativeAI(key);
 }

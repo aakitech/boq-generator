@@ -769,7 +769,7 @@ function GenerateBOQTab() {
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">1,000 starter credits worth $1.00</p>
+              <p className="text-xs text-gray-500">1,000 starter credits</p>
             </div>
           </div>
           <ul className="space-y-2">

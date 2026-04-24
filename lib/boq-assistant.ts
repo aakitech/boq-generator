@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, type UsageMetadata } from "@google/generative-ai";
 import type { BOQDocument } from "./types";
 import { computeAICostUsd, type AIUsageEntry } from "./gemini-pricing";
+import { getServerEnv } from "./server-env";
 
 const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY || "gemini-2.5-pro";
 const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-flash";
@@ -11,7 +12,7 @@ export type AssistantUsageCollector = {
 };
 
 function getGenAI() {
-  const key = process.env.GEMINI_API_KEY;
+  const key = getServerEnv("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
   return new GoogleGenerativeAI(key);
 }

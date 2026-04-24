@@ -37,7 +37,7 @@ function LoginContent() {
         </div>
 
         <div className="inline-flex items-center justify-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-          New accounts get 1,000 starter credits worth $1.00
+          New accounts get 1,000 starter credits
         </div>
 
         <button
