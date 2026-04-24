@@ -23,6 +23,53 @@ const GEMINI_VISION_MODELS = [
   "gemini-2.5-flash",
 ].filter(Boolean) as string[];
 
+function classifyExtractionError(error: unknown): { status: number; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes("failed to parse body as formdata") ||
+    lower.includes("request body exceeded") ||
+    lower.includes("body exceeded") ||
+    lower.includes("too large")
+  ) {
+    return {
+      status: 413,
+      message:
+        "This file is too large to upload. Please use a PDF or Word document under 15 MB. If the file is a scanned PDF, try compressing it or exporting only the relevant pages before uploading again.",
+    };
+  }
+
+  if (lower.includes("invalid pdf")) {
+    return {
+      status: 400,
+      message: "This PDF looks invalid or corrupted. Please re-export it as a standard PDF and try again.",
+    };
+  }
+
+  if (lower.includes("mammoth")) {
+    return {
+      status: 400,
+      message:
+        "We could not read this Word document. Please re-save it as a .docx file with selectable text and try again.",
+    };
+  }
+
+  if (lower.includes("pdf")) {
+    return {
+      status: 400,
+      message:
+        "We could not read this PDF properly. Please make sure it is not corrupted and that the text is selectable, or upload a cleaner export.",
+    };
+  }
+
+  return {
+    status: 500,
+    message:
+      "We could not extract readable text from this document. Please check that it is a valid PDF or Word file with readable text, then try again.",
+  };
+}
+
 function getVisionClient() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
@@ -265,9 +312,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     logger.error("Extraction error", { error: err instanceof Error ? err.message : String(err), route: "extract" });
-    return NextResponse.json(
-      { error: "Failed to extract text from the document. Please try again." },
-      { status: 500 }
-    );
+    const classified = classifyExtractionError(err);
+    return NextResponse.json({ error: classified.message }, { status: classified.status });
   }
 }
