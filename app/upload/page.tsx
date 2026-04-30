@@ -32,13 +32,10 @@ type SupportingUpload = {
 function formatAttachmentLabel(type: RequiredAttachment["type"]) {
   switch (type) {
     case "drawing":
-      return "Drawings";
     case "schedule":
-      return "Schedules";
     case "spec":
-      return "Specifications";
     case "boq":
-      return "Existing BOQ";
+      return "Supporting document";
     default:
       return "Supporting document";
   }
@@ -47,13 +44,10 @@ function formatAttachmentLabel(type: RequiredAttachment["type"]) {
 function summarizeAttachmentNeed(type: RequiredAttachment["type"]) {
   switch (type) {
     case "drawing":
-      return "Helpful if the scope refers to layouts, details, or dimensions.";
     case "schedule":
-      return "Helpful if the scope refers to room schedules, programmes, or activity lists.";
     case "spec":
-      return "Helpful if the scope depends on technical specifications or material standards.";
     case "boq":
-      return "Helpful if you want the new BOQ to follow an existing format or baseline.";
+      return "Add this only if it gives useful project context.";
     default:
       return "Add this only if it gives useful project context.";
   }
@@ -649,8 +643,8 @@ function GenerateBOQTab() {
                 <p className="text-xs text-white/90">
                   {sowWarning ||
                     (hasOptionalSupportingDocs
-                      ? "You can continue with the SOW only. Adding drawings or supporting documents may improve accuracy."
-                      : "This document contains enough construction scope signals to proceed with BOQ generation.")}
+                      ? "You can continue with the SOW only."
+                      : "This document is ready for BOQ generation.")}
                 </p>
               </div>
             </div>
@@ -665,13 +659,24 @@ function GenerateBOQTab() {
                     Only add these if you already have them and want a better result.
                   </p>
                 )}
-                {classification.requiredAttachments.map((attachment, index) => {
+                {(classification.shouldBlockGeneration
+                  ? classification.requiredAttachments
+                  : classification.requiredAttachments.slice(0, 1)
+                ).map((attachment, index) => {
                   const current = supportingUploads[index];
                   return (
                     <div key={`${attachment.type}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs text-white">{formatAttachmentLabel(attachment.type)}</p>
-                        <p className="text-[11px] text-gray-400">{summarizeAttachmentNeed(attachment.type)}</p>
+                        <p className="text-xs text-white">
+                          {classification.shouldBlockGeneration
+                            ? formatAttachmentLabel(attachment.type)
+                            : "Supporting document"}
+                        </p>
+                        <p className="text-[11px] text-gray-400">
+                          {classification.shouldBlockGeneration
+                            ? summarizeAttachmentNeed(attachment.type)
+                            : "Add this only if it gives useful project context."}
+                        </p>
                         {current?.file && (
                           <p className="text-[11px] text-green-200 mt-1 truncate">{current.file.name}</p>
                         )}
