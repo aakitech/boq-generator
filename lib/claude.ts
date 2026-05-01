@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, SchemaType, type UsageMetadata } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { computeAICostUsd, type AIProvider, type AIUsageEntry } from "@/lib/gemini-pricing";
+import { getServerEnv } from "@/lib/server-env";
 import type {
   BOQArtifacts,
   BOQDocumentType,
@@ -377,7 +378,7 @@ function recordGeminiUsage(
 }
 
 function getOpenAIKey() {
-  return process.env.OPENAI_API_KEY?.trim() || null;
+  return getServerEnv("OPENAI_API_KEY");
 }
 
 function ensureOpenAIConfigured() {
@@ -420,11 +421,23 @@ function toOpenAIJsonSchema(node: GeminiSchemaNode): Record<string, unknown> {
   if (node.description) schema.description = node.description;
 
   if (node.type === SchemaType.OBJECT) {
+    const requiredKeys = new Set(node.required ?? []);
     const properties = Object.fromEntries(
-      Object.entries(node.properties ?? {}).map(([key, value]) => [key, toOpenAIJsonSchema(value)])
+      Object.entries(node.properties ?? {}).map(([key, value]) => {
+        const isOptional = !requiredKeys.has(key);
+        const normalizedValue =
+          isOptional && !value.nullable
+            ? {
+                ...value,
+                nullable: true,
+              }
+            : value;
+
+        return [key, toOpenAIJsonSchema(normalizedValue)];
+      })
     );
     schema.properties = properties;
-    schema.required = node.required ?? Object.keys(node.properties ?? {});
+    schema.required = Object.keys(node.properties ?? {});
     schema.additionalProperties = false;
   } else if (node.type === SchemaType.ARRAY) {
     schema.items = node.items ? toOpenAIJsonSchema(node.items) : {};
@@ -647,6 +660,38 @@ function inferSourceBundleStatus(
   return "complete";
 }
 
+function toOptionalSupportingAttachments(requiredAttachments: RequiredAttachment[]): RequiredAttachment[] {
+  return requiredAttachments.map((attachment) => ({
+    ...attachment,
+    required: false,
+  }));
+}
+
+function applyGoLiveSOWRules(result: SOWValidationResult): SOWValidationResult {
+  if (!result.isSOW) return result;
+
+  const optionalAttachments = toOptionalSupportingAttachments(result.required_attachments ?? []);
+  const hasOptionalAttachments = optionalAttachments.length > 0;
+
+  return {
+    ...result,
+    should_block_generation: false,
+    required_attachments: optionalAttachments,
+    source_bundle_status:
+      result.source_bundle_status === "missing_required_attachments" || hasOptionalAttachments
+        ? "partial_optional_context"
+        : result.source_bundle_status,
+    flags: hasOptionalAttachments
+      ? Array.from(
+          new Set([
+            ...result.flags,
+            "SOW-only generation is allowed. Supporting drawings/documents may improve accuracy but are optional.",
+          ])
+        ).slice(0, 6)
+      : result.flags,
+  };
+}
+
 function normalizeSourceDocumentType(
   type: GenerationInputDocument["document_type"] | undefined,
   role: "primary" | "supporting"
@@ -843,7 +888,7 @@ function inferSOWHeuristics(text: string, supportingDocsCount = 0): SOWValidatio
 }
 
 function getGenAI() {
-  const key = process.env.GEMINI_API_KEY;
+  const key = getServerEnv("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
   return new GoogleGenerativeAI(key);
 }
@@ -1377,7 +1422,7 @@ ${preview}`,
     }
 
     if (heuristic.isSOW && llm.isSOW) {
-      return {
+      return applyGoLiveSOWRules({
         isSOW: true,
         reason: llm.reason || heuristic.reason,
         confidence: clamp01(Math.max(heuristic.confidence, llm.confidence ?? 0.65)),
@@ -1397,13 +1442,13 @@ ${preview}`,
           new Set([...(heuristic.negative_signals ?? []), ...(llm.negative_signals ?? [])])
         ).slice(0, 6),
         flags: Array.from(new Set([...heuristic.flags, ...(llm.flags ?? [])])).slice(0, 6),
-      };
+      });
     }
 
-    return heuristic.confidence >= (llm.confidence ?? 0.5) ? heuristic : llm;
+    return applyGoLiveSOWRules(heuristic.confidence >= (llm.confidence ?? 0.5) ? heuristic : llm);
   } catch (error) {
     logger.warn("validateSOW falling back to heuristic classification", { error: String(error) });
-    return heuristic;
+    return applyGoLiveSOWRules(heuristic);
   }
 }
 

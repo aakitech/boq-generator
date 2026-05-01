@@ -1,8 +1,11 @@
 import { logger } from "@/lib/logger";
 import { NextRequest } from "next/server";
 import type { BOQDocument } from "@/lib/types";
-import { createClient } from "@/lib/supabase/server";
-import { proposeBOQEditWithAI, streamAssistantSummary } from "@/lib/boq-assistant";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { proposeBOQEditWithAI, streamAssistantSummary, type AssistantUsageCollector } from "@/lib/boq-assistant";
+import { consumeWalletCredits, getRemainingCredits } from "@/lib/credits";
+import { creditsForAssistantEdit, summarizeAIUsage } from "@/lib/gemini-pricing";
+import { trackEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -117,20 +120,64 @@ export async function POST(
         }
 
         const sourceBoq = body.boq ?? (existing.data as BOQDocument);
+        const serviceClient =
+          process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase;
+        const currentCredits = await getRemainingCredits(serviceClient, user.id);
+
+        if (currentCredits < 1) {
+          write("error", { message: "No credits remaining for the AI assistant.", status: 402 });
+          controller.close();
+          return;
+        }
+
+        const usageCollector: AssistantUsageCollector = { entries: [] };
 
         write("status", { step: "planning" });
         await streamAssistantSummary(sourceBoq, instruction, (token) => {
           write("token", { token });
-        });
+        }, usageCollector);
 
         write("status", { step: "proposing" });
-        const result = await proposeBOQEditWithAI(sourceBoq, instruction);
+        const result = await proposeBOQEditWithAI(sourceBoq, instruction, usageCollector);
         const diff = buildDiffSummary(sourceBoq, result.proposed_boq);
+        const usageSummary = summarizeAIUsage(usageCollector.entries);
+        const assistantCredits = Math.max(creditsForAssistantEdit(), usageSummary.creditsCharged, 1);
+        const creditResult = await consumeWalletCredits(serviceClient, {
+          userId: user.id,
+          reason: "assistant_boq",
+          referenceType: "boq",
+          referenceId: `${id}:${Date.now()}`,
+          credits: assistantCredits,
+          deltaUsd: usageSummary.costUsd,
+          metadata: {
+            ai_cost_usd: usageSummary.costUsd,
+            ai_input_tokens: usageSummary.inputTokens,
+            ai_output_tokens: usageSummary.outputTokens,
+            ai_total_tokens: usageSummary.totalTokens,
+            billed_credits: assistantCredits,
+          },
+        });
+
+        if (creditResult.status === "insufficient") {
+          write("error", { message: "You do not have enough credits left to use the AI assistant.", status: 402 });
+          controller.close();
+          return;
+        }
+
+        trackEvent(user.id, "credit_consumed", {
+          reason: "assistant_boq",
+          boqId: id,
+          remainingCredits: creditResult.remainingCredits,
+          creditsCharged: assistantCredits,
+          aiCostUsd: usageSummary.costUsd,
+        });
 
         write("result", {
           summary: result.summary,
           proposed_boq: result.proposed_boq,
           diff,
+          remainingCredits: creditResult.remainingCredits,
+          creditsCharged: assistantCredits,
         });
         write("done", { ok: true });
       } catch (err) {

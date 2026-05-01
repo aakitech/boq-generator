@@ -1,6 +1,8 @@
 export const STARTER_WALLET_CREDITS = 1000;
-export const STARTER_WALLET_USD = 2.5;
+export const STARTER_WALLET_USD = 1;
 export const USD_PER_CREDIT = STARTER_WALLET_USD / STARTER_WALLET_CREDITS;
+export const GENERATE_BOQ_TARGET_USD = 0.5;
+export const ASSISTANT_EDIT_TARGET_USD = 0.05;
 
 type AIPrice = {
   inputPerMillionUsd: number;
@@ -87,6 +89,19 @@ export function computeAICostUsd(options: {
 export function creditsFromUsdCost(costUsd: number): number {
   if (costUsd <= 0) return 0;
   return Math.max(1, Math.ceil(costUsd / USD_PER_CREDIT));
+}
+
+export function creditsFromUsdTarget(targetUsd: number): number {
+  if (targetUsd <= 0) return 0;
+  return Math.max(1, Math.ceil(targetUsd / USD_PER_CREDIT));
+}
+
+export function creditsForGeneratedBoq(): number {
+  return creditsFromUsdTarget(GENERATE_BOQ_TARGET_USD);
+}
+
+export function creditsForAssistantEdit(): number {
+  return creditsFromUsdTarget(ASSISTANT_EDIT_TARGET_USD);
 }
 
 export function summarizeAIUsage(entries: AIUsageEntry[]): AIUsageSummary {

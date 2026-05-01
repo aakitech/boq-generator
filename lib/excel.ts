@@ -8,7 +8,7 @@ import type {
 } from "./types";
 
 type CellStyle = {
-  font?: { bold?: boolean; sz?: number; color?: { rgb: string } };
+  font?: { bold?: boolean; sz?: number; name?: string; color?: { rgb: string } };
   fill?: { fgColor: { rgb: string } };
   alignment?: { horizontal?: string; vertical?: string; wrapText?: boolean };
   border?: {
@@ -444,12 +444,12 @@ export function extractWorkbookBOQ(
 }
 
 const COLORS = {
-  header_bg: "1F2937",    // dark navy header
-  bill_bg: "374151",      // bill section bg
-  subheader_bg: "4B5563", // subsection bg
-  total_bg: "1E3A5F",     // total row bg
+  header_bg: "FFFFFF",
+  bill_bg: "E5E7EB",
+  subheader_bg: "F3F4F6",
+  total_bg: "E5E7EB",
   white: "FFFFFF",
-  amber: "F59E0B",
+  black: "111111",
   light_gray: "F9FAFB",
   border: "D1D5DB",
   dark_border: "6B7280",
@@ -547,6 +547,7 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ws: { [key: string]: any } = {};
   const merges: XLSX.Range[] = [];
+  const rowHeights: Array<{ hpt: number }> = [];
 
   let row = 1; // 1-indexed
 
@@ -555,8 +556,26 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
     ws[ref] = cell(v, s);
   }
 
+  function styleRange(r1: number, c1: number, r2: number, c2: number, s: CellStyle) {
+    for (let r = r1; r <= r2; r += 1) {
+      for (let c = c1; c <= c2; c += 1) {
+        const ref = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 });
+        const existing = ws[ref];
+        if (existing) {
+          existing.s = s;
+        } else {
+          ws[ref] = cell("", s);
+        }
+      }
+    }
+  }
+
   function merge(r1: number, c1: number, r2: number, c2: number) {
     merges.push({ s: { r: r1 - 1, c: c1 - 1 }, e: { r: r2 - 1, c: c2 - 1 } });
+  }
+
+  function setRowHeight(r: number, hpt: number) {
+    rowHeights[r - 1] = { hpt };
   }
 
   function blankRow() {
@@ -565,87 +584,82 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
 
   // ─── METADATA HEADER ─────────────────────────────────────────────────────
   const titleStyle: CellStyle = {
-    font: { bold: true, sz: 16, color: { rgb: COLORS.amber } },
+    font: { bold: true, sz: 16, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.header_bg } },
     alignment: { horizontal: "center", vertical: "center" },
   };
   const metaLabelStyle: CellStyle = {
-    font: { bold: true, sz: 11, color: { rgb: COLORS.white } },
+    font: { bold: true, sz: 11, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "left", vertical: "center" },
+    alignment: { horizontal: "center", vertical: "center" },
   };
   const metaValueStyle: CellStyle = {
-    font: { bold: false, sz: 11, color: { rgb: COLORS.white } },
+    font: { bold: true, sz: 12, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "left", vertical: "center", wrapText: true },
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
   };
 
-  setCell(row, 1, "BILL OF QUANTITIES", titleStyle);
-  merge(row, 1, row, 6);
+  blankRow();
+  setCell(row, 2, "BILL OF QUANTITIES", titleStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, titleStyle);
+  setRowHeight(row, 24);
   row++;
 
-  setCell(row, 1, "FOR", metaLabelStyle);
-  merge(row, 1, row, 6);
+  setCell(row, 2, "FOR", metaLabelStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, metaLabelStyle);
+  setRowHeight(row, 18);
   row++;
 
-  setCell(row, 1, boq.project.toUpperCase(), {
-    ...metaLabelStyle,
-    font: { ...metaLabelStyle.font, sz: 13 },
+  const projectTitleStyle: CellStyle = {
+    ...metaValueStyle,
+    font: { ...metaValueStyle.font, sz: 13, bold: true },
     alignment: { horizontal: "center", vertical: "center", wrapText: true },
-  });
-  merge(row, 1, row, 6);
-  row++;
-
-  setCell(row, 1, "AT", metaLabelStyle);
-  setCell(row, 2, boq.location.toUpperCase(), metaValueStyle);
-  merge(row, 2, row, 6);
-  row++;
-
-  setCell(row, 1, "DATE", metaLabelStyle);
-  setCell(row, 2, boq.date, metaValueStyle);
-  merge(row, 2, row, 6);
-  row++;
-
-  setCell(row, 1, "PREPARED BY", metaLabelStyle);
-  setCell(row, 2, boq.prepared_by || "MIG ENGINEERING", metaValueStyle);
-  merge(row, 2, row, 6);
+  };
+  setCell(row, 2, boq.project.toUpperCase(), projectTitleStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, projectTitleStyle);
+  setRowHeight(row, 22);
   row++;
 
   blankRow();
 
   // ─── COLUMN HEADERS (top-level, for preambles section) ───────────────────
   const colHeaderStyle: CellStyle = {
-    font: { bold: true, sz: 11, color: { rgb: COLORS.white } },
-    fill: { fgColor: { rgb: COLORS.bill_bg } },
+    font: { bold: true, sz: 11, name: "Arial", color: { rgb: COLORS.black } },
+    fill: { fgColor: { rgb: COLORS.header_bg } },
     alignment: { horizontal: "center", vertical: "center" },
-    border: borderMedium(),
+    border: borderThin(),
   };
-  const headers = ["ITEM NO", "DESCRIPTION", "UNIT", "QTY", "RATE\n(ZMW)", "AMOUNT\n(ZMW)"];
+  const headers = ["ITEM", "DESCRIPTION", "UNIT", "QTY", "RATE", "AMOUNT"];
   headers.forEach((h, i) => setCell(row, i + 1, h, colHeaderStyle));
+  setRowHeight(row, 20);
   row++;
 
   blankRow();
 
   // ─── GENERAL PREAMBLES ────────────────────────────────────────────────────
   const preambleTitleStyle: CellStyle = {
-    font: { bold: true, sz: 11 },
+    font: { bold: true, sz: 11, name: "Arial", color: { rgb: COLORS.black } },
     alignment: { horizontal: "left", vertical: "center" },
     border: borderThin(),
   };
   const preambleTextStyle: CellStyle = {
-    font: { sz: 10 },
+    font: { sz: 10, color: { rgb: COLORS.black } },
     alignment: { horizontal: "left", vertical: "top", wrapText: true },
     border: borderThin(),
   };
   const preambleNoStyle: CellStyle = {
-    font: { sz: 10 },
+    font: { sz: 10, bold: true, color: { rgb: COLORS.black } },
     alignment: { horizontal: "center", vertical: "top" },
     border: borderThin(),
   };
 
-  setCell(row, 1, "", preambleTitleStyle);
   setCell(row, 2, "General Preambles", preambleTitleStyle);
-  merge(row, 2, row, 6);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, preambleTitleStyle);
+  setRowHeight(row, 20);
   row++;
 
   blankRow();
@@ -677,20 +691,28 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
   for (const bill of boq.bills) {
     // Bill title row — "BILL No. X" in col A, title in col B–F (merged)
     const billTitleStyle: CellStyle = {
-      font: { bold: true, sz: 12, color: { rgb: COLORS.amber } },
-      fill: { fgColor: { rgb: COLORS.bill_bg } },
+      font: { bold: true, sz: 12, name: "Arial", color: { rgb: COLORS.black } },
+      fill: { fgColor: { rgb: COLORS.header_bg } },
       alignment: { horizontal: "left", vertical: "center" },
-      border: borderMedium(),
+      border: borderThin(),
     };
-    setCell(row, 1, `BILL No. ${bill.number}`, billTitleStyle);
-    setCell(row, 2, bill.title, billTitleStyle);
-    merge(row, 2, row, 6);
+    setCell(row, 2, `BILL No. ${bill.number}`, billTitleStyle);
+    merge(row, 2, row, 5);
+    styleRange(row, 2, row, 5, billTitleStyle);
+    setRowHeight(row, 20);
+    row++;
+
+    setCell(row, 2, bill.title.toUpperCase(), billTitleStyle);
+    merge(row, 2, row, 5);
+    styleRange(row, 2, row, 5, billTitleStyle);
+    setRowHeight(row, 20);
     row++;
 
     blankRow();
 
     // Column headers repeated for each bill
     headers.forEach((h, i) => setCell(row, i + 1, h, colHeaderStyle));
+    setRowHeight(row, 20);
     row++;
 
     blankRow();
@@ -701,14 +723,16 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
       if (item.is_header) {
         // Subsection header
         const subStyle: CellStyle = {
-          font: { bold: true, sz: 10, color: { rgb: COLORS.white } },
-          fill: { fgColor: { rgb: COLORS.subheader_bg } },
+          font: { bold: true, sz: 10, name: "Arial", color: { rgb: COLORS.black } },
+          fill: { fgColor: { rgb: COLORS.header_bg } },
           alignment: { horizontal: "left", vertical: "center" },
           border: borderThin(),
         };
-        setCell(row, 1, "", subStyle);
+        setCell(row, 1, item.item_no || "", { ...subStyle, alignment: { horizontal: "center", vertical: "center" } });
         setCell(row, 2, item.description, subStyle);
-        merge(row, 2, row, 6);
+        merge(row, 2, row, 5);
+        styleRange(row, 2, row, 5, subStyle);
+        setRowHeight(row, 18);
         row++;
         blankRow();
         continue;
@@ -716,17 +740,17 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
 
       // Work item row
       const itemStyle: CellStyle = {
-        font: { sz: 10 },
+        font: { sz: 10, color: { rgb: COLORS.black } },
         alignment: { horizontal: "left", vertical: "top", wrapText: true },
         border: borderThin(),
       };
       const numStyle: CellStyle = {
-        font: { sz: 10 },
+        font: { sz: 10, color: { rgb: COLORS.black } },
         alignment: { horizontal: "center", vertical: "top" },
         border: borderThin(),
       };
       const currencyStyle: CellStyle = {
-        font: { sz: 10 },
+        font: { sz: 10, color: { rgb: COLORS.black } },
         alignment: { horizontal: "right", vertical: "top" },
         border: borderThin(),
         numFmt: "#,##0.00",
@@ -761,7 +785,7 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
     // Bill subtotal row
     // Format: col A blank | col B–D "TOTAL CARRIED TO SUMMARY..." | col E "ZMW" | col F amount
     const totalStyle: CellStyle = {
-      font: { bold: true, sz: 10, color: { rgb: COLORS.white } },
+      font: { bold: true, sz: 10, color: { rgb: COLORS.black } },
       fill: { fgColor: { rgb: COLORS.total_bg } },
       alignment: { horizontal: "left", vertical: "center" },
       border: borderMedium(),
@@ -776,7 +800,7 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
       alignment: { horizontal: "center", vertical: "center" },
     };
     setCell(row, 1, "", totalStyle);
-    setCell(row, 2, "TOTAL CARRIED TO SUMMARY OF BILL OF QUANTITIES", totalStyle);
+    setCell(row, 2, `${bill.title.toUpperCase()} - TOTAL TO SUMMARY`, totalStyle);
     merge(row, 2, row, 4);
     setCell(row, 5, "ZMW", totalZmwStyle);
     setCell(row, 6, billTotal, billTotal !== null ? totalAmountStyle : totalStyle);
@@ -790,40 +814,48 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
   // ─── GENERAL SUMMARY ──────────────────────────────────────────────────────
   // Repeat the title block before the summary (matching sample BOQs)
   const summaryHeaderBlockStyle: CellStyle = {
-    font: { bold: true, sz: 13, color: { rgb: COLORS.amber } },
+    font: { bold: true, sz: 13, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.header_bg } },
     alignment: { horizontal: "center", vertical: "center" },
-    border: borderMedium(),
+    border: borderThin(),
   };
 
-  setCell(row, 1, "BILL OF QUANTITIES", summaryHeaderBlockStyle);
-  merge(row, 1, row, 6);
+  setCell(row, 2, "BILL OF QUANTITIES", summaryHeaderBlockStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, summaryHeaderBlockStyle);
+  setRowHeight(row, 22);
   row++;
 
-  setCell(row, 1, "FOR", summaryHeaderBlockStyle);
-  merge(row, 1, row, 6);
+  setCell(row, 2, "FOR", summaryHeaderBlockStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, summaryHeaderBlockStyle);
+  setRowHeight(row, 18);
   row++;
 
-  setCell(row, 1, boq.project.toUpperCase(), summaryHeaderBlockStyle);
-  merge(row, 1, row, 6);
+  setCell(row, 2, boq.project.toUpperCase(), summaryHeaderBlockStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, summaryHeaderBlockStyle);
+  setRowHeight(row, 20);
   row++;
 
   blankRow();
 
   const generalSummaryTitleStyle: CellStyle = {
-    font: { bold: true, sz: 13, color: { rgb: COLORS.amber } },
+    font: { bold: true, sz: 13, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.header_bg } },
     alignment: { horizontal: "center", vertical: "center" },
-    border: borderMedium(),
+    border: borderThin(),
   };
-  setCell(row, 1, "GENERAL SUMMARY", generalSummaryTitleStyle);
-  merge(row, 1, row, 6);
+  setCell(row, 2, "GENERAL SUMMARY", generalSummaryTitleStyle);
+  merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, generalSummaryTitleStyle);
+  setRowHeight(row, 22);
   row++;
 
   blankRow();
 
   const summaryColHeaderStyle: CellStyle = {
-    font: { bold: true, sz: 10, color: { rgb: COLORS.white } },
+    font: { bold: true, sz: 10, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.bill_bg } },
     alignment: { horizontal: "center", vertical: "center" },
     border: borderMedium(),
@@ -831,7 +863,9 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
   setCell(row, 1, "BILL NO.", summaryColHeaderStyle);
   setCell(row, 2, "DESCRIPTION", summaryColHeaderStyle);
   merge(row, 2, row, 5);
+  styleRange(row, 2, row, 5, summaryColHeaderStyle);
   setCell(row, 6, "AMOUNT (ZMW)", summaryColHeaderStyle);
+  setRowHeight(row, 20);
   row++;
 
   blankRow();
@@ -839,18 +873,18 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
   let grandTotal: number | null = null;
   for (const b of billTotals) {
     const summaryRowStyle: CellStyle = {
-      font: { sz: 10 },
+      font: { sz: 10, color: { rgb: COLORS.black } },
       alignment: { horizontal: "left", vertical: "center" },
       border: borderThin(),
     };
     const summaryAmtStyle: CellStyle = {
-      font: { sz: 10 },
+      font: { sz: 10, color: { rgb: COLORS.black } },
       alignment: { horizontal: "right", vertical: "center" },
       border: borderThin(),
       numFmt: "#,##0.00",
     };
     setCell(row, 1, `${b.number}`, { ...summaryRowStyle, alignment: { horizontal: "center", vertical: "center" } });
-    setCell(row, 2, `BILL No. ${b.number} ${b.title}`, summaryRowStyle);
+    setCell(row, 2, `${b.title.toUpperCase()}`, summaryRowStyle);
     merge(row, 2, row, 5);
     setCell(row, 6, b.amount, b.amount !== null ? summaryAmtStyle : summaryRowStyle);
     if (b.amount !== null) grandTotal = (grandTotal ?? 0) + b.amount;
@@ -860,7 +894,7 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
 
   // Grand total
   const grandTotalStyle: CellStyle = {
-    font: { bold: true, sz: 12, color: { rgb: COLORS.white } },
+    font: { bold: true, sz: 12, name: "Arial", color: { rgb: COLORS.black } },
     fill: { fgColor: { rgb: COLORS.total_bg } },
     alignment: { horizontal: "left", vertical: "center" },
     border: borderMedium(),
@@ -877,8 +911,10 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
   setCell(row, 1, "", grandTotalStyle);
   setCell(row, 2, "TOTAL      (VAT EXCLUSIVE)", grandTotalStyle);
   merge(row, 2, row, 4);
+  styleRange(row, 2, row, 4, grandTotalStyle);
   setCell(row, 5, "ZMW", grandZmwStyle);
   setCell(row, 6, grandTotal, grandTotal !== null ? grandAmtStyle : grandTotalStyle);
+  setRowHeight(row, 22);
 
   // ─── WORKSHEET SETUP ──────────────────────────────────────────────────────
   ws["!merges"] = merges;
@@ -890,6 +926,7 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
     { wch: 14 },  // E: Rate / ZMW
     { wch: 16 },  // F: Amount
   ];
+  ws["!rows"] = rowHeights;
   ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 5 } });
 
   const sheetName = sanitizeSheetName(`BOQ ${boq.project}`);

@@ -66,7 +66,7 @@ export default function LandingPage() {
             <p className="mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-gray-300">
               BOQ Generator helps construction teams move from Scope of Work to
               structured BOQ drafts, cleaner rate workflows, and faster tender prep.
-              New accounts can now try the product with 1,000 starter credits, and you only
+              New accounts now start with 1,000 starter credits, and you only
               pay once those credits are used.
             </p>
 
@@ -135,7 +135,7 @@ export default function LandingPage() {
             >
               Try for free
             </a>
-            <p className="text-xs text-gray-500">New accounts get 1,000 starter credits to test the product.</p>
+            <p className="text-xs text-gray-500">New accounts get 1,000 starter credits.</p>
           </div>
         </section>
 

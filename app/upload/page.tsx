@@ -29,6 +29,30 @@ type SupportingUpload = {
   error?: string | null;
 };
 
+function formatAttachmentLabel(type: RequiredAttachment["type"]) {
+  switch (type) {
+    case "drawing":
+    case "schedule":
+    case "spec":
+    case "boq":
+      return "Supporting document";
+    default:
+      return "Supporting document";
+  }
+}
+
+function summarizeAttachmentNeed(type: RequiredAttachment["type"]) {
+  switch (type) {
+    case "drawing":
+    case "schedule":
+    case "spec":
+    case "boq":
+      return "Add this only if it gives useful project context.";
+    default:
+      return "Add this only if it gives useful project context.";
+  }
+}
+
 const PAYMENT_MODE =
   process.env.NEXT_PUBLIC_PAYMENT_PROVIDER === "manual_whatsapp"
     ? process.env.NODE_ENV === "production"
@@ -146,6 +170,10 @@ function GenerateBOQTab() {
     }
     return "Generate BOQ →";
   }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, remainingCredits, stage]);
+
+  const hasOptionalSupportingDocs = Boolean(
+    classification && !classification.shouldBlockGeneration && classification.requiredAttachments.length > 0
+  );
 
   function handleFile(f: File) {
     const name = f.name.toLowerCase();
@@ -614,60 +642,41 @@ function GenerateBOQTab() {
                 </p>
                 <p className="text-xs text-white/90">
                   {sowWarning ||
-                    "This document contains enough construction scope signals to proceed with BOQ generation."}
+                    (hasOptionalSupportingDocs
+                      ? "You can continue with the SOW only."
+                      : "This document is ready for BOQ generation.")}
                 </p>
-                <div className="flex flex-wrap gap-2 text-[11px] text-white/80">
-                  <span className="px-2 py-1 rounded bg-white/10">
-                    Type: {classification.documentType ?? "unknown"}
-                  </span>
-                  <span className="px-2 py-1 rounded bg-white/10">
-                    Bundle: {classification.sourceBundleStatus.replaceAll("_", " ")}
-                  </span>
-                  {classification.confidence !== null && (
-                    <span className="px-2 py-1 rounded bg-white/10">
-                      Confidence: {(classification.confidence * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
 
-            {classification.positiveSignals.length > 0 && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-gray-300 mb-1">Why it passed</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {classification.positiveSignals.map((signal) => (
-                    <span key={signal} className="text-[11px] px-2 py-1 rounded bg-green-500/15 text-green-100">
-                      {signal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {classification.negativeSignals.length > 0 && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-gray-300 mb-1">Why it failed</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {classification.negativeSignals.map((signal) => (
-                    <span key={signal} className="text-[11px] px-2 py-1 rounded bg-yellow-500/15 text-yellow-100">
-                      {signal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {classification.requiredAttachments.length > 0 && (
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-wide text-gray-300">Required attachments</p>
-                {classification.requiredAttachments.map((attachment, index) => {
+                <p className="text-[11px] uppercase tracking-wide text-gray-300">
+                  {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
+                </p>
+                {!classification.shouldBlockGeneration && (
+                  <p className="text-[11px] text-gray-400">
+                    Only add these if you already have them and want a better result.
+                  </p>
+                )}
+                {(classification.shouldBlockGeneration
+                  ? classification.requiredAttachments
+                  : classification.requiredAttachments.slice(0, 1)
+                ).map((attachment, index) => {
                   const current = supportingUploads[index];
                   return (
                     <div key={`${attachment.type}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs text-white capitalize">{attachment.type}</p>
-                        <p className="text-[11px] text-gray-400">{attachment.reason}</p>
+                        <p className="text-xs text-white">
+                          {classification.shouldBlockGeneration
+                            ? formatAttachmentLabel(attachment.type)
+                            : "Supporting document"}
+                        </p>
+                        <p className="text-[11px] text-gray-400">
+                          {classification.shouldBlockGeneration
+                            ? summarizeAttachmentNeed(attachment.type)
+                            : "Add this only if it gives useful project context."}
+                        </p>
                         {current?.file && (
                           <p className="text-[11px] text-green-200 mt-1 truncate">{current.file.name}</p>
                         )}
@@ -711,20 +720,10 @@ function GenerateBOQTab() {
 
             {bundleDocs.length > 0 && (
               <div>
-                <p className="text-[11px] uppercase tracking-wide text-gray-300 mb-1">Source bundle</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {bundleDocs.map((doc) => (
-                    <span key={doc.document_id} className="text-[11px] px-2 py-1 rounded bg-white/10 text-gray-100">
-                      {doc.role === "primary" ? "Primary" : "Attachment"}: {doc.name}
-                    </span>
-                  ))}
-                </div>
                 <p className="text-[11px] text-gray-400 mt-2">
-                  {bundleDocs.length} document{bundleDocs.length === 1 ? "" : "s"} ready for generation.
-                  {" "}
                   {processedSupportingCount > 0
-                    ? `${processedSupportingCount} attachment${processedSupportingCount === 1 ? "" : "s"} processed.`
-                    : "No supporting attachments processed yet."}
+                    ? `${processedSupportingCount} supporting document${processedSupportingCount === 1 ? "" : "s"} added.`
+                    : "SOW ready for generation."}
                 </p>
               </div>
             )}
@@ -759,7 +758,7 @@ function GenerateBOQTab() {
               <div>
                 <p className="text-sm font-medium text-white">Starter credits available</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  This rate fill will use credits based on actual AI usage before paid options are needed.
+                  Your starter credits apply first, so you can keep going before paid options are needed.
                 </p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />
@@ -775,7 +774,7 @@ function GenerateBOQTab() {
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">1,000 starter credits for new accounts</p>
+              <p className="text-xs text-gray-500">1,000 starter credits</p>
             </div>
           </div>
           <ul className="space-y-2">
@@ -1347,7 +1346,7 @@ function RateBOQTab() {
               <div>
                 <p className="text-sm font-medium text-white">Starter credits available</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  This rate fill will use credits based on actual AI usage before paid options are needed.
+                  Your starter credits apply first, so you can keep going before paid options are needed.
                 </p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />

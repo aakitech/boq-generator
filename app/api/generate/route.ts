@@ -6,7 +6,7 @@ import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { computePricing, loadTiers } from "@/lib/pricing";
-import { summarizeAIUsage } from "@/lib/gemini-pricing";
+import { creditsForGeneratedBoq, summarizeAIUsage } from "@/lib/gemini-pricing";
 import type { GeminiUsageCollector } from "@/lib/claude";
 import type { PostgrestError } from "@supabase/supabase-js";
 
@@ -161,6 +161,7 @@ export async function POST(req: NextRequest) {
       }
     );
     const usageSummary = summarizeAIUsage(usageCollector.entries);
+    const generationCredits = Math.max(creditsForGeneratedBoq(), usageSummary.creditsCharged, 1);
 
     // Compute pricing from the generated BOQ
     const tiers = loadTiers();
@@ -197,7 +198,7 @@ export async function POST(req: NextRequest) {
         ai_output_tokens: usageSummary.outputTokens,
         ai_total_tokens: usageSummary.totalTokens,
         ai_cost_usd: usageSummary.costUsd,
-        ai_credits_charged: usageSummary.creditsCharged,
+        ai_credits_charged: generationCredits,
         ai_usage_breakdown: usageSummary.entries,
       })
       .select("id")
@@ -228,7 +229,7 @@ export async function POST(req: NextRequest) {
       tier: pricing.tier.label,
       amountCents: pricing.tier.usdCents,
       aiCostUsd: usageSummary.costUsd,
-      creditsCharged: usageSummary.creditsCharged,
+      creditsCharged: generationCredits,
     });
 
     // Return preview metadata only — NOT the full BOQ (locked until paid)

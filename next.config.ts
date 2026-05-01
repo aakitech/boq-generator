@@ -3,6 +3,9 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdf-parse", "pg", "mammoth"],
+  experimental: {
+    proxyClientMaxBodySize: "15mb",
+  },
 };
 
 export default withSentryConfig(nextConfig, {
