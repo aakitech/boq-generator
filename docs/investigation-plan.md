@@ -166,19 +166,35 @@ Acceptance:
 - Spike report summarizing outcomes, decisions, and final recommended path with effort estimates.
 
 ## Acceptance Criteria (Spike-level)
-- A clear decision for the Excel approach, including library and patch pattern, backed by test evidence.
-- A recommended async job architecture with a minimal PoC that demonstrates resumability, retry behavior, and duplicate-prevention.
-- A minimum tracing model for debugging failed jobs and designing admin recovery.
-- Quantified rate accuracy and cost numbers with recommended mitigations.
-- A recommendation for drawings/OCR, framed as Level 1/2/3 investment with cost/benefit analysis.
 
-## Timeline & Estimates
-- Day 0-1: Create test workbooks and scaffold benchmark harness.
-- Day 1-2: Run Excel library benchmarks and select primary approach.
-- Day 2-3: Implement small patcher PoC and run idempotency tests.
-- Day 3-4: Implement async job PoC and trace recording.
-- Day 4-5: Run rate accuracy benchmark if real ground-truth samples are ready; otherwise prepare dataset and defer execution.
-- Later/optional: Run drawing OCR quick tests after reliability work is complete.
+## 2.a SOW / BOQ Quality Spike
+
+Decision: Investigate why SOW-driven BOQ generation produces substantially fewer/mechanically different rows than a human QS, and identify interventions to increase completeness and fidelity.
+
+Objective: Measure the gap between current automated BOQ output (from SOW upload) and high-quality QS-produced BOQs, then run targeted experiments to close that gap.
+
+Tests:
+- Collect a representative sample of SOWs and the QS-produced BOQs for the same projects (10-30 pairs).
+- Run the current SOW->BOQ generator on the same SOWs and compare line counts, coverage by trade, and missing-measurement patterns.
+- Instrument the generator to capture intermediate parsing outputs (clauses, extracted quantities, inferred units, and mapping heuristics).
+- Run ablation experiments: change individual pipeline components (NL parsing model, chunking strategy, mapping heuristics, entity extraction thresholds) and measure the effect on BOQ line recall.
+
+Metrics:
+- BOQ line recall: fraction of QS lines matched by the generator (target lift from ~50% toward >=80%).
+- Line precision: fraction of generator lines that map to QS lines (avoid blowup of false positives).
+- Coverage by trade: recall per trade (concrete, finishes, mechanical, electrical, etc.).
+- Structural completeness: presence of key groups (preliminaries, structural steel, reinforcement, pipework).
+- Processing cost and latency per SOW.
+
+Acceptance:
+- A clear diagnosis of the main failure modes (examples: missed measured items, failed unit extraction, over-aggregation of related items).
+- One or more validated interventions that increase BOQ line recall on the held-out set (for example: improved entity extraction, different chunking, additional parsing prompts, or integration of rule-based heuristics).
+
+Deliverables:
+- An experimental report with per-project comparisons and concrete examples of missing items.
+- A prioritized list of changes (small/medium/large) that will increase BOQ completeness, with estimated effort.
+- If quick wins found: small PRs implementing them (e.g., improved unit extraction, fallback heuristics, or post-processing expansion rules).
+
 - Final: Summarize findings and recommended plan.
 
 ## Next Steps

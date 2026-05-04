@@ -1839,11 +1839,11 @@ function buildExistingRateReferences(
 
 function classifyPricingCategory(description: string, unit: string): BOQPricingCategory {
   const text = `${normalizeRateKey(description, unit)} ${normalizeRateKey(unit, "")}`.trim();
-  if (/\bditto\b|\bincluding\b|\bincl\b/.test(text)) return "ditto_reference";
+  if (/\bditto\b/.test(text)) return "ditto_reference";
   if (/\bant proof\b|\bantproof\b|\btermite\b|\binsecticide\b|\btreatment\b|\bdestroy termites\b/.test(text)) {
     return "treatment_service";
   }
-  if (/\bmantis\b|\bgrating\b|\bbaluster\b|\brsa\b|\btread support\b|\bbracing\b|\bhandrail\b|\bsteel\b|\bmetal\b/.test(text)) {
+  if (/\bmantis\b|\bgrating\b|\bbaluster\b|\brsa\b|\btread support\b|\bbracing\b|\bhandrail\b|\bsteel\b|\bmetal\b|\bchannel\b|\bpurlin\b|\bpurlins\b|\bplate\b|\bplates\b|\bbars\b|\bbar\b|\breinforcement\b|\bconforce\b/.test(text)) {
     return "steel_fabrication";
   }
   if (/\bpipe\b|\bupvc\b|\bpvc\b|\bdrain\b|\bgully\b|\btrap\b|\belbow\b|\btee\b|\bbranch\b|\bjunction\b|\bsleeve\b|\bconnector\b|\bbend\b/.test(text)) {
@@ -1873,6 +1873,21 @@ function requiresLocalPrecedent(category: BOQPricingCategory): boolean {
     category === "steel_fabrication" ||
     category === "treatment_service"
   );
+}
+
+function normalizeUnitForRateInheritance(unit: string): string {
+  return normalizeRateKey(unit, "").replace(/\s+/g, "");
+}
+
+function localRateFamily(description: string, unit: string, category: BOQPricingCategory): string | null {
+  const normalizedUnit = normalizeUnitForRateInheritance(unit);
+  if (
+    category === "steel_fabrication" &&
+    (normalizedUnit === "kg" || normalizedUnit === "kgs")
+  ) {
+    return "weighted_steel";
+  }
+  return null;
 }
 
 function defaultSkipReason(category: BOQPricingCategory): BOQRateSkipReason {
@@ -1973,7 +1988,21 @@ async function fillRatesPass(
 
   let localMatches = 0;
   let gatedSpecialistRows = 0;
-  const billLocalRates = new Map<string, Array<{ description: string; unit: string; rate: number }>>();
+  const billLocalRates = new Map<string, Array<{
+    description: string;
+    unit: string;
+    rate: number;
+    category: BOQPricingCategory;
+    family: string | null;
+  }>>();
+  const addBillLocalRate = (
+    billKey: string,
+    entry: { description: string; unit: string; rate: number; category: BOQPricingCategory; family: string | null }
+  ) => {
+    const nextBillRates = billLocalRates.get(billKey) ?? [];
+    nextBillRates.push(entry);
+    billLocalRates.set(billKey, nextBillRates);
+  };
   const unresolvedItems: Array<{
     item_key: string;
     description: string;
@@ -1988,23 +2017,58 @@ async function fillRatesPass(
     bills: boq.bills.map((bill) => ({
       ...bill,
       items: bill.items.map((item) => {
-        if (item.is_header || item.rate !== null) return item;
         const pricingCategory = classifyPricingCategory(item.description, item.unit);
+        const pricingFamily = localRateFamily(item.description, item.unit, pricingCategory);
+        const billKey = `${normalizeRateKey(bill.title, "")}::${normalizeRateKey(item.workbook_context ?? "", "")}`;
+
+        if (item.is_header) return item;
+        if (item.rate !== null) {
+          addBillLocalRate(billKey, {
+            description: item.description,
+            unit: item.unit,
+            rate: item.rate,
+            category: pricingCategory,
+            family: pricingFamily,
+          });
+          return {
+            ...item,
+            pricing_category: item.pricing_category ?? pricingCategory,
+          };
+        }
+
         const key = normalizeRateKey(item.description, item.unit);
         const exactMatches = exactRateMap.get(key) ?? [];
         let matchedRate = median(exactMatches);
         let matchReason = "Reused an exact matching rate from another row in the uploaded workbook.";
 
-        const billKey = `${normalizeRateKey(bill.title, "")}::${normalizeRateKey(item.workbook_context ?? "", "")}`;
         const priorBillRates = billLocalRates.get(billKey) ?? [];
 
-        if (matchedRate === null && pricingCategory === "ditto_reference") {
+        const isExplicitDittoReference = /\bditto\b/i.test(item.description);
+
+        if (matchedRate === null && pricingCategory === "ditto_reference" && isExplicitDittoReference) {
           const inherited = [...priorBillRates]
             .reverse()
             .find((candidate) => candidate.unit === item.unit || !item.unit || !candidate.unit);
           if (inherited) {
             matchedRate = inherited.rate;
             matchReason = "Inherited the nearest safe local rate for a ditto/reference row in the same bill section.";
+          }
+        }
+
+        if (matchedRate === null && requiresLocalPrecedent(pricingCategory) && pricingCategory !== "ditto_reference") {
+          const compatiblePrecedent = [...priorBillRates]
+            .reverse()
+            .find(
+              (candidate) =>
+                normalizeUnitForRateInheritance(candidate.unit) === normalizeUnitForRateInheritance(item.unit) &&
+                (
+                  candidate.category === pricingCategory ||
+                  (pricingFamily !== null && candidate.family === pricingFamily)
+                )
+            );
+          if (compatiblePrecedent) {
+            matchedRate = compatiblePrecedent.rate;
+            matchReason = "Reused the nearest compatible workbook-local precedent in the same bill section.";
           }
         }
 
@@ -2044,9 +2108,13 @@ async function fillRatesPass(
         }
 
         localMatches += 1;
-        const nextBillRates = billLocalRates.get(billKey) ?? [];
-        nextBillRates.push({ description: item.description, unit: item.unit, rate: matchedRate });
-        billLocalRates.set(billKey, nextBillRates);
+        addBillLocalRate(billKey, {
+          description: item.description,
+          unit: item.unit,
+          rate: matchedRate,
+          category: pricingCategory,
+          family: pricingFamily,
+        });
         return {
           ...item,
           pricing_category: pricingCategory,

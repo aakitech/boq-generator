@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type {
   BOQBill,
   BOQDocument,
@@ -58,6 +59,15 @@ type SheetExtractionResult = {
   stats: BOQWorkbookSheetStat;
 };
 
+type ExcelJsCellValue =
+  | string
+  | number
+  | boolean
+  | Date
+  | null
+  | undefined
+  | { text?: string; result?: unknown; formula?: string; richText?: Array<{ text?: string }> };
+
 function cell(v: string | number | null, s?: CellStyle): Cell {
   return { v, t: typeof v === "number" ? "n" : "s", s };
 }
@@ -72,6 +82,17 @@ function normalizeText(value: unknown): string {
 
 function toTrimmed(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function excelJsValueToPrimitive(value: ExcelJsCellValue): unknown {
+  if (value && typeof value === "object") {
+    if ("text" in value && value.text !== undefined) return value.text;
+    if ("result" in value && value.result !== undefined) return value.result;
+    if ("richText" in value && Array.isArray(value.richText)) {
+      return value.richText.map((entry) => entry.text ?? "").join("");
+    }
+  }
+  return value;
 }
 
 function parseNumber(value: unknown): number | null {
@@ -969,11 +990,34 @@ export function patchExcelWithRates(
   rateColumnHeader: string,
   amountColumnHeader: string
 ): Buffer {
-  const wb = XLSX.read(originalBuffer, { type: "buffer" });
+  const wb = XLSX.read(originalBuffer, {
+    type: "buffer",
+    cellFormula: true,
+    cellStyles: true,
+    sheetStubs: true,
+  });
   const allItems = boq.bills.flatMap((bill) => bill.items.filter((item) => !item.is_header));
   const fallbackRowsBySheet = new Map<string, Map<string, WorkbookRowRecord[]>>();
   const columnsBySheet = new Map<string, { rateCol: number; amountCol: number }>();
   const perSheetStats = boq.workbook_preservation?.per_sheet_stats ?? [];
+
+  const patchCellValue = (
+    ws: XLSX.WorkSheet,
+    ref: string,
+    value: string | number,
+    type: "s" | "n",
+    format?: string
+  ) => {
+    const existing = ws[ref] ?? {};
+    ws[ref] = {
+      ...existing,
+      v: value,
+      t: type,
+      ...(format ? { z: format } : {}),
+      f: undefined,
+      w: undefined,
+    };
+  };
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
@@ -1108,19 +1152,19 @@ export function patchExcelWithRates(
     const amountCol = sheetColumns.amountCol;
 
     if (item.note && /incl/i.test(item.note)) {
-      ws[XLSX.utils.encode_cell({ r, c: rateCol })] = { v: "Incl", t: "s" };
+      patchCellValue(ws, XLSX.utils.encode_cell({ r, c: rateCol }), "Incl", "s");
       if (amountCol !== -1) {
         const amountRef = XLSX.utils.encode_cell({ r, c: amountCol });
         const existingAmountCell = ws[amountRef];
         if (!existingAmountCell?.f) {
-          ws[amountRef] = { v: "Incl", t: "s" };
+          patchCellValue(ws, amountRef, "Incl", "s");
         }
       }
       continue;
     }
 
     if (item.rate !== null) {
-      ws[XLSX.utils.encode_cell({ r, c: rateCol })] = { v: item.rate, t: "n", z: "#,##0.00" };
+      patchCellValue(ws, XLSX.utils.encode_cell({ r, c: rateCol }), item.rate, "n", "#,##0.00");
     }
 
     if (amountCol !== -1) {
@@ -1129,11 +1173,190 @@ export function patchExcelWithRates(
       if (!existingAmountCell?.f) {
         const amount = computeAmount(item);
         if (amount !== null) {
-          ws[amountRef] = { v: amount, t: "n", z: "#,##0.00" };
+          patchCellValue(ws, amountRef, amount, "n", "#,##0.00");
         }
       }
     }
   }
 
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx", cellStyles: true });
+}
+
+export async function patchExcelWithRatesPreservingWorkbook(
+  originalBuffer: Buffer,
+  boq: BOQDocument,
+  rateColumnHeader: string,
+  amountColumnHeader: string
+): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(originalBuffer as unknown as ArrayBuffer);
+
+  const allItems = boq.bills.flatMap((bill) => bill.items.filter((item) => !item.is_header));
+  const fallbackRowsBySheet = new Map<string, Map<string, WorkbookRowRecord[]>>();
+  const columnsBySheet = new Map<string, { rateCol: number; amountCol: number }>();
+  const perSheetStats = boq.workbook_preservation?.per_sheet_stats ?? [];
+
+  for (const ws of wb.worksheets) {
+    let currentColumns: WorkbookColumnMap | null = null;
+    let currentBillTitle = "Front Matter";
+    let currentSection: string | null = null;
+    let pendingBillTitle = false;
+    const fallbackRows = new Map<string, WorkbookRowRecord[]>();
+
+    for (let rowIndex = 1; rowIndex <= ws.rowCount; rowIndex += 1) {
+      const row = ws.getRow(rowIndex);
+      const rowValues: unknown[] = [];
+      for (let colIndex = 1; colIndex <= ws.columnCount; colIndex += 1) {
+        rowValues[colIndex - 1] = excelJsValueToPrimitive(row.getCell(colIndex).value as ExcelJsCellValue);
+      }
+
+      const detectedHeader = detectHeaderRow(rowValues, rowIndex - 1);
+      if (detectedHeader) {
+        currentColumns = detectedHeader;
+        if (!columnsBySheet.has(ws.name) && detectedHeader.rateCol >= 0) {
+          columnsBySheet.set(ws.name, {
+            rateCol: detectedHeader.rateCol,
+            amountCol: detectedHeader.amountCol,
+          });
+        }
+        continue;
+      }
+
+      if (isBillMarkerRow(rowValues)) {
+        const values = nonEmptyValues(rowValues);
+        const marker = values.find((value) => /^bill\s*no\.?\s*\d+/i.test(value));
+        currentBillTitle = marker ?? currentBillTitle;
+        currentSection = null;
+        pendingBillTitle = true;
+        continue;
+      }
+
+      const firstNonEmpty = findFirstNonEmptyCell(rowValues);
+      if (!firstNonEmpty) continue;
+
+      if (pendingBillTitle) {
+        const values = nonEmptyValues(rowValues);
+        if (values.length === 1 && !/^item$/i.test(values[0])) {
+          currentBillTitle = values[0];
+          pendingBillTitle = false;
+          continue;
+        }
+        pendingBillTitle = false;
+      }
+
+      const sheetStats = perSheetStats.find((stats) => stats.sheet_name === ws.name);
+      const columns = currentColumns ?? {
+        itemNoCol: 0,
+        descriptionCol: 1,
+        unitCol: 2,
+        qtyCol: 3,
+        rateCol: -1,
+        amountCol: -1,
+        headerRow: -1,
+        rateHeader: sheetStats?.rate_column_header ?? rateColumnHeader,
+        amountHeader: sheetStats?.amount_column_header ?? amountColumnHeader,
+        qtyHeader: sheetStats?.qty_column_header ?? "QTY",
+      };
+
+      const description = toTrimmed(rowValues[columns.descriptionCol] ?? firstNonEmpty.value);
+      const unit = toTrimmed(rowValues[columns.unitCol]);
+      const qty = parseNumber(rowValues[columns.qtyCol]);
+      const rateValue = columns.rateCol >= 0 ? parseNumber(rowValues[columns.rateCol]) : null;
+      const amountValue = columns.amountCol >= 0 ? parseNumber(rowValues[columns.amountCol]) : null;
+      const isSummaryRow = looksLikeSummaryRow(description);
+      const isMeasuredRow = Boolean(unit) || qty !== null;
+      const isHeaderRow =
+        !isMeasuredRow &&
+        rateValue === null &&
+        (amountValue === null || amountValue === 0) &&
+        description.length > 0 &&
+        !isSummaryRow;
+
+      if (!description || /^description$/i.test(description) || /^item$/i.test(description)) continue;
+      if (isHeaderRow) {
+        currentSection = description;
+        continue;
+      }
+      if (!isMeasuredRow) continue;
+
+      const context = currentSection ? `${currentBillTitle} > ${currentSection}` : currentBillTitle;
+      const key = buildNormalizedRowKey(description, unit);
+      const existing = fallbackRows.get(key) ?? [];
+      existing.push({
+        sheetName: ws.name,
+        rowNumber: rowIndex,
+        description,
+        unit,
+        context,
+        normalizedKey: key,
+      });
+      fallbackRows.set(key, existing);
+    }
+
+    fallbackRowsBySheet.set(ws.name, fallbackRows);
+  }
+
+  for (const item of allItems) {
+    const anchor = parseSourceAnchor(item.source_anchor);
+    const targetSheetName = anchor?.sheet ?? item.source_document ?? null;
+    if (!targetSheetName) continue;
+
+    const ws = wb.getWorksheet(targetSheetName);
+    const sheetColumns = columnsBySheet.get(targetSheetName);
+    if (!ws || !sheetColumns || sheetColumns.rateCol < 0) continue;
+
+    let targetRow = anchor?.row ?? null;
+    if (!targetRow) {
+      const key = buildNormalizedRowKey(item.description, item.unit);
+      const candidates = fallbackRowsBySheet.get(targetSheetName)?.get(key) ?? [];
+      let narrowed = candidates;
+      if (item.workbook_context) {
+        const targetContext = normalizeText(item.workbook_context);
+        const contextMatches = candidates.filter(
+          (candidate) => normalizeText(candidate.context) === targetContext
+        );
+        if (contextMatches.length > 0) {
+          narrowed = contextMatches;
+        }
+      }
+      if (narrowed.length === 1) {
+        targetRow = narrowed[0].rowNumber;
+      }
+    }
+
+    if (!targetRow) continue;
+
+    const row = ws.getRow(targetRow);
+    const rateCell = row.getCell(sheetColumns.rateCol + 1);
+
+    if (item.note && /incl/i.test(item.note)) {
+      rateCell.value = "Incl";
+      if (sheetColumns.amountCol !== -1) {
+        const amountCell = row.getCell(sheetColumns.amountCol + 1);
+        if (!amountCell.formula) {
+          amountCell.value = "Incl";
+        }
+      }
+      continue;
+    }
+
+    if (item.rate !== null) {
+      rateCell.value = item.rate;
+      rateCell.numFmt = rateCell.numFmt || "#,##0.00";
+    }
+
+    if (sheetColumns.amountCol !== -1) {
+      const amountCell = row.getCell(sheetColumns.amountCol + 1);
+      if (!amountCell.formula) {
+        const amount = computeAmount(item);
+        if (amount !== null) {
+          amountCell.value = amount;
+          amountCell.numFmt = amountCell.numFmt || "#,##0.00";
+        }
+      }
+    }
+  }
+
+  const output = await wb.xlsx.writeBuffer();
+  return Buffer.isBuffer(output) ? output : Buffer.from(output);
 }

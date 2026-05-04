@@ -1,7 +1,7 @@
 import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { patchExcelWithRates } from "@/lib/excel";
+import { patchExcelWithRatesPreservingWorkbook } from "@/lib/excel";
 
 export const runtime = "nodejs";
 
@@ -56,7 +56,7 @@ export async function GET(
     const originalBuffer = Buffer.from(arrayBuffer);
 
     // Patch the original Excel with rates from the BOQ
-    const patched = patchExcelWithRates(
+    const patched = await patchExcelWithRatesPreservingWorkbook(
       originalBuffer,
       row.data,
       row.rate_col_header ?? "Rate",
