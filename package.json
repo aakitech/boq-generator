@@ -10,7 +10,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
     "@base-ui/react": "^1.2.0",
     "@google/generative-ai": "^0.24.1",
     "@sentry/nextjs": "^10.45.0",

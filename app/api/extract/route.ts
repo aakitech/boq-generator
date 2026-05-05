@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import mammoth from "mammoth";
-import { validateSOW } from "@/lib/claude";
+import { validateSOW } from "@/lib/ai";
 import { getServerEnv } from "@/lib/server-env";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports

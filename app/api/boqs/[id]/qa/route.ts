@@ -1,7 +1,7 @@
 import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { scoreBOQ } from "@/lib/claude";
+import { scoreBOQ } from "@/lib/ai";
 import { computeDeterministicQA } from "@/lib/boq-qa";
 import type { BOQDocument } from "@/lib/types";
 

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateBOQ, validateSOW } from "@/lib/claude";
-import type { GenerationInputDocument } from "@/lib/claude";
+import { generateBOQ, validateSOW } from "@/lib/ai";
+import type { GenerationInputDocument } from "@/lib/ai";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { computePricing, loadTiers } from "@/lib/pricing";
 import { creditsForGeneratedBoq, summarizeAIUsage } from "@/lib/gemini-pricing";
-import type { GeminiUsageCollector } from "@/lib/claude";
+import type { GeminiUsageCollector } from "@/lib/ai";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       text?: string;
       documents?: GenerationInputDocument[];
       suggest_rates?: boolean;
-      rate_context?: import("@/lib/claude").RateContext;
+      rate_context?: import("@/lib/ai").RateContext;
       is_sow?: boolean;
       sow_warning?: string;
       document_type?: string;

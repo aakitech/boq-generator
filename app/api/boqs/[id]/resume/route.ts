@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
-import { fillMissingRatesInExistingBOQ, type RateContext } from "@/lib/claude";
+import { fillMissingRatesInExistingBOQ, type RateContext } from "@/lib/ai";
 import { extractWorkbookBOQ } from "@/lib/excel";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
