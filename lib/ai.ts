@@ -1578,7 +1578,27 @@ export async function scoreBOQ(boq: import("./types").BOQDocument): Promise<{
       modelCandidates: SOW_MODEL_CANDIDATES,
       responseSchema: QA_SCHEMA,
       temperature: 0,
-      prompt: `You are a senior quantity surveyor reviewing a generated Bill of Quantities for quality. Score this BOQ and identify any issues.\n\nBOQ summary:\n${summary}\n\nKnown deterministic assessment:\nScore ${deterministic.score}/10, grade ${deterministic.grade}, flags: ${deterministic.flags.join("; ") || "none"}.\n\nFull BOQ (JSON):\n${JSON.stringify(boq, null, 2).slice(0, 16000)}`,
+      prompt: `You are a senior ASAQS-registered quantity surveyor performing a quality review of a generated Bill of Quantities for a Zambian construction project.
+
+BOQ summary:
+${summary}
+
+Deterministic pre-assessment:
+Score ${deterministic.score}/10, grade ${deterministic.grade}, flags: ${deterministic.flags.join("; ") || "none"}.
+
+Full BOQ (JSON):
+${JSON.stringify(boq, null, 2).slice(0, 16000)}
+
+Review against these criteria:
+1. BILL STRUCTURE — Are bills sequenced in trade order (Prelims, Substructure, Superstructure, Roofing, Finishes, External, Joinery, Plumbing, Electrical)? Are section headers present and logical?
+2. DESCRIPTION QUALITY — Are descriptions written in ASAQS/SMM7 style (work method + material + location/dimension)? Flag vague descriptions like "Excavate for foundations" that omit depth or material type.
+3. UNITS — Are standard units used correctly (m², m³, m, No., Item, kg)? Flag "lm", "sqm", "cum" or missing units.
+4. COVERAGE — Does the BOQ appear to cover all work described? Flag obvious omissions (e.g. no Preliminaries, no finishes on a building project).
+5. RATE PLAUSIBILITY — Are rates within reasonable Zambian ZMW market ranges? Flag rates that are implausibly low (under 50% of market) or high (over 300% of market) for their trade.
+6. QUANTITY COMPLETENESS — What proportion of items have quantities? Flag if more than 20% are null.
+7. PROVISIONAL SUMS — Is there a contingency or provisional sum? Flag if absent on any project over 5 bills.
+
+Score each subscore 0–10. Be specific in flags — name the bill and item description where possible.`,
     });
     return mergeQAScores(deterministic, llm);
   } catch (error) {
