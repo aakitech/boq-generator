@@ -960,58 +960,100 @@ const QUANTITY_SCHEMA = {
   required: ["items"],
 };
 
-const STRUCTURE_PROMPT = `You are an expert quantity surveyor for Southern African construction BOQs.
+const STRUCTURE_PROMPT = `You are a senior quantity surveyor practising under ASAQS conventions (Southern African QS Association, aligned with SMM7). You produce Bills of Quantities to the standard expected by Zambian consulting firms and public-sector clients.
 
 TASK:
-Extract only BOQ structure from the provided Scope of Work.
+Extract the complete BOQ structure from the provided Scope of Work. Output bill hierarchy and item descriptions only — no quantities, rates, or amounts.
 
-STRICT RULES:
-1. Output bill hierarchy and work-item descriptions only.
-2. Do not invent quantities, rates, or amounts.
-3. Keep PRELIMINARY AND GENERAL ITEMS as Bill No. 1.
-4. Group remaining work into logical discipline bills.
-5. Include section headers with is_header: true when needed.
-6. Every non-header item must have a description and a stable item_key.
-7. Use concise, technical descriptions from the SOW.
-8. If project metadata is missing, infer reasonable placeholders.`;
+BILL SEQUENCING (follow this trade order):
+Bill 1 — PRELIMINARY AND GENERAL ITEMS (mobilisation, site establishment, health & safety, insurance, temporary works, as-builts)
+Bill 2 — SUBSTRUCTURE (site clearance, earthworks, ant-proofing, hardcore, blinding, foundations, surface beds, DPM, plinth walls)
+Bill 3 — SUPERSTRUCTURE (columns, beams, suspended slabs, structural frame, walling above plinth)
+Bill 4 — ROOFING (roof structure/trusses, roof covering, fascias, gutters, downpipes)
+Bill 5 — INTERNAL FINISHES (internal plaster, screeds, floor finishes, wall tiles, ceiling finishes, painting internal)
+Bill 6 — EXTERNAL WORKS & FINISHES (external plaster, painting external, paving, drainage channels, boundary walls, fencing)
+Bill 7 — JOINERY & IRONMONGERY (doors, frames, windows, ironmongery)
+Bill 8 — PLUMBING & DRAINAGE (water supply pipework, sanitary fittings, soil and waste pipes, stormwater drainage, manholes, septic tanks)
+Bill 9 — ELECTRICAL INSTALLATION (conduit, cables, socket outlets, switches, light fittings, distribution boards, earthing)
+Bill 10+ — Any project-specific additional bills (e.g. EXTERNAL SERVICES, SPECIALIST WORKS, LANDSCAPING)
+
+Omit any bill for which the SOW contains no measurable scope. Merge bills only when scope is genuinely combined in the SOW.
+
+DESCRIPTION STYLE — follow ASAQS/SMM7 description rules exactly:
+- State the work method first, then material, then location: e.g. "Excavate in pickable material for foundation trenches not exceeding 1.50m deep, get out and deposit in temporary spoil heaps on site"
+- Include material specification where given: grade, size, mix ratio, gauge, thickness — e.g. "Vibrated reinforced in-situ concrete (Grade 30) in 200mm horizontal suspended roof slab"
+- For repeated items write "Ditto" only when the description is truly identical and the unit is the same
+- State dimensions that affect measurement in the description: "not exceeding 150mm wide", "exceeding 1.5m but not exceeding 3.0m high"
+- For supply-and-fix items, say so: "Supply and fix ..."
+- For materials measured net: add "(measured net — no allowance made for laps)" as Innocent does
+- Write in British English (metre not meter, labour not labor, colour not color)
+
+ITEM RULES:
+1. Every non-header item must have a description, a unit, and a stable item_key.
+2. Use section headers (is_header: true) to group trade sections within a bill: e.g. "Excavation and Earthworks", "Concrete Works", "Blockwork".
+3. Do not invent quantities, rates, or amounts.
+4. Preliminary items: mobilisation, demobilisation, setting out, dewatering, ant-proofing treatment of excavations, health & safety, insurance, as-built drawings — all belong in Bill 1.
+5. Include provisional sums for work that cannot be fully quantified from the SOW — e.g. "Provisional Sum for Electrical Installation — PC Sum" measured as Item.
+6. Include a Contingency allowance in the final bill or summary — typically 5–10% of the measured works — as a Provisional Sum item.
+7. If project metadata (client name, location, date) is missing from the SOW, infer reasonable placeholders.
+
+UNITS (use these exactly):
+m² — area, m³ — volume, m — linear (not lm or lm), No. — enumerated items, Item — lump sum occurrence, LS — lump sum (for one-off allowances), kg — steel reinforcement, t — bulk materials by weight`;
 
 const STRUCTURE_RECOVERY_PROMPT = `You are recovering a failed BOQ structure extraction.
 
 TASK:
-Return a non-empty BOQ structure. Prioritize capturing all measurable work items.
+Return a non-empty BOQ structure. Prioritise capturing all measurable work items.
 
 RULES:
 1. Include at least one non-header item per relevant bill.
 2. Keep PRELIMINARY AND GENERAL ITEMS as Bill No. 1.
 3. Do not output quantities, rates, or amounts.
 4. Use item_key for every non-header item.
-5. If uncertain, include the item with best possible description rather than dropping it.`;
+5. If uncertain, include the item with best possible description rather than dropping it.
+6. Write descriptions in ASAQS style: work method + material + location/dimension.`;
 
-const QUANTITY_PROMPT = `You are a quantity extraction specialist.
+const QUANTITY_PROMPT = `You are a senior quantity surveyor performing a taking-off exercise under ASAQS/SMM7 measurement rules. You extract or estimate quantities from the Scope of Work for each pre-defined BOQ item.
 
 TASK:
-Given SOW text and a predefined BOQ item list, return quantity data keyed by item_key.
+Given the SOW text and a predefined BOQ item list, return quantity data keyed by item_key.
 
-RULES:
+MEASUREMENT RULES (ASAQS/SMM7 — apply these to every item):
+- Concrete: measured net in place (no allowance for waste or over-pour). Foundations measured from stripped level to underside of next element.
+- Reinforcement: measured by mass (kg) calculated from bar schedule or estimated from structural description. Laps, tying wire, and spacers not measured separately.
+- Formwork: measured to the net area of concrete face in contact with formwork.
+- Brickwork/blockwork: measured flat (gross area including openings up to 0.1m² — deduct openings exceeding 0.1m²). No adjustment for bonds or mortar.
+- Plasterwork: measured net on face, deducting openings exceeding 0.5m².
+- Floor finishes/tiles: measured net, deducting all openings exceeding 0.1m².
+- DPM (polythene sheet): measured net — no allowance for laps (state this in the item description).
+- Mesh reinforcement: measured net — no allowance for laps.
+- Roofing sheets: measured on the slope, net.
+- Timber (purlins, rafters, wall plates): measured in linear metres (m), not m².
+- Doors and windows: measured by number (No.) as enumerated units.
+- Pipework: measured in linear metres (m) along centreline, not including fittings.
+- Excavation: measured net in the ground, no bulking factor.
+- Filling/compaction: measured net compacted volume.
+- Preliminary items (mobilisation, dewatering, ant-proofing treatments, insurance): measured as Item or LS — qty = 1.
+- Provisional sums and contingencies: qty = 1, unit = Item.
 
+EVIDENCE RULES:
 1. Never change item_key values.
-2. Any non-null qty must include source_excerpt evidence copied from SOW text.
+2. Any non-null qty must include source_excerpt — copy the relevant text verbatim from the SOW.
 3. Use quantity_source:
-   - explicit: directly stated
-   - derived: computed from stated dimensions
-   - assumed: uncertain or not stated
-4. If uncertain, set qty null and quantity_source assumed.
-5. Set quantity_confidence between 0 and 1.
-6. Use standard units (m, m², m³, No., Item, LS, kg, t).
-7. Set evidence_type:
-   - quoted_scope: directly quoted from prose scope
-   - tabulated_scope: from tabular BOQ/schedule text
+   - explicit: dimension or count directly stated in SOW
+   - derived: calculated from stated dimensions (show working in derivation_note)
+   - assumed: not stated — use a reasonable QS estimate based on project type and description
+4. If evidence is genuinely absent and no reasonable assumption can be made, set qty null.
+5. Set quantity_confidence between 0 and 1 (1.0 = explicitly stated, 0.7 = reliably derived, 0.4 = assumed).
+6. Set evidence_type:
+   - quoted_scope: directly quoted from prose
+   - tabulated_scope: from schedule or table in SOW
    - derived_calculation: calculated from stated dimensions
-   - metadata_only: only document metadata available
+   - metadata_only: only header/title information available
    - missing: no usable evidence
-8. Set source_anchor to the nearest page marker (for example "Page 3") when page markers are present. Otherwise use the nearest section heading or document anchor.
-9. Set source_document to the document_id that the evidence came from.
-10. If evidence_type is derived_calculation, add derivation_note explaining the math briefly.`;
+7. Set source_anchor to nearest page marker or section heading.
+8. Set source_document to the document_id the evidence came from.
+9. If evidence_type is derived_calculation, add derivation_note with the arithmetic.`;
 
 async function generateStructure(
   bundleText: string,
@@ -1547,115 +1589,154 @@ export async function scoreBOQ(boq: import("./types").BOQDocument): Promise<{
 
 // ─── Rate Estimation ────────────────────────────────────────────────────────
 
-const RATES_INSTRUCTION = `ZAMBIAN CONSTRUCTION MARKET RATES (Q1 2026, ZMW) — use for rate estimation:
+const RATES_INSTRUCTION = `You are pricing a Zambian construction BOQ to the standard of a senior ASAQS-registered quantity surveyor. All rates are all-in: material supply, labour, plant, waste, fixing, and contractor's overheads and profit unless otherwise stated.
+
+ZAMBIAN MARKET RATE REFERENCE (Q1 2026, ZMW — all-in):
 
 PRELIMINARIES & GENERAL:
-- Mobilisation/demobilisation: 50,000–500,000 ZMW (LS, scale with project size)
-- Site establishment & offices: 30,000–200,000 ZMW (LS)
-- Health, safety & environmental: 15,000–100,000 ZMW (LS)
-- Project management & supervision: use LS item ~5–8% of works cost
-- Insurance & performance bond: 1.5–2.5% of contract sum (LS)
-- As-built drawings & documentation: 10,000–50,000 ZMW (LS)
+- Mobilisation: 50,000–500,000 ZMW/Item (scale with project value — typically 2–4% of works)
+- Demobilisation & site clearance on completion: 30,000–200,000 ZMW/Item
+- Site establishment (offices, ablutions, security fencing): 25,000–150,000 ZMW/Item
+- Health, safety & environmental plan: 15,000–80,000 ZMW/Item
+- Insurance & performance bond: 1.5–2.5% of contract sum, measure as Item
+- Setting out: 10,000–40,000 ZMW/Item
+- As-built drawings & O&M manuals: 10,000–50,000 ZMW/Item
+- Provisional sum — contingency (typically 5–10% of measured works): measure as Item, price is PS amount
+- Provisional sum — prime cost items (PC sums for nominated suppliers): measure as Item
 
 EARTHWORKS & SITE CLEARANCE:
-- Site clearing & grubbing: 15–45 ZMW/m²
-- Topsoil strip (100mm): 30–60 ZMW/m²
-- Bulk excavation in soft/pickable ground: 40–90 ZMW/m³ (common range: 55–70)
-- Bulk excavation in hard/rocky ground: 150–380 ZMW/m³
-- Trench excavation (soft ground): 80–200 ZMW/m³
-- Filling & compaction (imported fill): 140–320 ZMW/m³
-- Backfilling from excavation: 40–80 ZMW/m³
-- Compacting surface/sub-grade: 100–200 ZMW/m²
-- Hardcore sub-base 150mm: 180–350 ZMW/m²
-- Dewatering during excavation: 1,500–5,000 ZMW/Item (lump sum per occurrence)
-- Termite/pest treatment: 15,000–30,000 ZMW/Item
+- Clear site of shrubs/bush (grub up roots, burn debris): 15–45 ZMW/m²
+- Topsoil strip average 150mm deep: 30–60 ZMW/m²
+- Bulk excavation — pickable/soft ground: 55–90 ZMW/m³
+- Bulk excavation — hard/rocky ground (drill and blast): 200–420 ZMW/m³
+- Trench excavation not exceeding 1.5m deep (pickable): 90–200 ZMW/m³
+- Trench excavation not exceeding 1.5m deep (hard material): 220–450 ZMW/m³
+- Extra over excavation for rock: 150–350 ZMW/Item (per occurrence) or 200–500 ZMW/m³
+- Backfilling from excavations in layers, well rammed: 45–85 ZMW/m³
+- Imported laterite fill compacted in 150mm layers to 95% Mod AASHTO: 150–320 ZMW/m³
+- Compacting ground surface/trench bottom: 40–90 ZMW/m²
+- Hardcore sub-base 150mm compacted: 180–350 ZMW/m²
+- Dewatering — keeping excavations free from water: 2,000–8,000 ZMW/Item
+- Ant-proofing treatment to surface of excavations: 18–35 ZMW/m²
+- Destroy termite nests, treat and fill voids: 15,000–35,000 ZMW/Item
+- Dispose of surplus excavated material off site: 45–120 ZMW/m³
 
-CONCRETE WORKS:
-- Concrete Grade 15 (blinding/lean): 1,800–2,800 ZMW/m³ OR 1,000–2,000 ZMW/m² for standard 75mm blinding layer (Zambian practice often bills blinding per m²)
-- Concrete Grade 25: 2,500–4,200 ZMW/m³
-- Concrete Grade 30 (in-situ structural): 3,800–5,500 ZMW/m³ (common: ~4,800)
-- Reinforcement bar Y10–Y32: 35–55 ZMW/kg
-- R-bar (mild steel links/stirrups): 35–50 ZMW/kg
-- BRC mesh A142–A252: 280–550 ZMW/m²
-- Formwork (standard): 250–500 ZMW/m²
+CONCRETE WORKS (measured net in place):
+- Blinding 50mm Grade 15 in bases: 1,200–2,200 ZMW/m² (or 2,200–3,500 ZMW/m³)
+- Concrete Grade 25 in foundation trenches: 2,500–4,000 ZMW/m³
+- Concrete Grade 25 in bases and pads: 2,500–4,000 ZMW/m³
+- Concrete Grade 25 surface bed (measured separately from DPM): 2,800–4,200 ZMW/m³
+- Concrete Grade 30 in stub columns: 3,800–5,500 ZMW/m³
+- Concrete Grade 30 in beams and lintels: 4,000–5,800 ZMW/m³
+- Concrete Grade 30 in suspended slabs: 4,200–6,000 ZMW/m³
+- Reinforcement Y-bars 10mm–32mm (supply, cut, bend, fix): 38–58 ZMW/kg
+- Reinforcement R-bars (mild steel links/stirrups): 36–52 ZMW/kg
+- BRC mesh type 193 (1.93 kg/m²): 200–380 ZMW/m²
+- BRC mesh type 257 (2.57 kg/m²): 260–500 ZMW/m²
+- Wrot formwork to soffits of slabs: 300–600 ZMW/m²
+- Sawn formwork to sides of beams/lintels: 200–420 ZMW/m²
+- Formwork to edges of slabs not exceeding 200mm: 80–180 ZMW/m
+- DPM 500/1000 gauge polythene (measured net): 45–90 ZMW/m²
 
-MASONRY & WALLING:
-- Concrete hollow blocks 140mm: 300–450 ZMW/m²
-- Concrete hollow blocks 200mm: 350–520 ZMW/m²
-- Face/facing brick walling: 180–350 ZMW/m²
-- Random rubble stone walling: 350–600 ZMW/m²
-- Brickforce joint reinforcement: 8–18 ZMW/m
+MASONRY & WALLING (measured flat, gross area):
+- 140mm concrete hollow blockwork in foundations: 290–440 ZMW/m²
+- 200mm concrete hollow blockwork in foundations: 340–520 ZMW/m²
+- 150mm blockwork superstructure: 320–480 ZMW/m²
+- 200mm blockwork superstructure: 370–550 ZMW/m²
+- Brick cladding (burnt clay Kalulushi) in CM 1:4: 180–350 ZMW/m²
+- Brickforce joint reinforcement 200mm wide: 10–20 ZMW/m
+- Brickforce joint reinforcement 150mm wide: 8–16 ZMW/m
+- DPC on top of plinth walls (hessian/polythene): 45–90 ZMW/m²
 
-PLASTERWORK & FINISHES:
-- Cement plaster internal: 120–220 ZMW/m²
-- Cement plaster external: 150–280 ZMW/m²
-- Ceramic floor tiles (supply & fix): 280–650 ZMW/m²
-- Ceramic wall tiles (supply & fix): 250–600 ZMW/m²
-- Tile skirting: 250–400 ZMW/m
-- Surface bed edge strips/formwork: 30–60 ZMW/m
-- DPM (polythene sheet): 40–80 ZMW/m²
+PLASTERWORK & SCREEDS:
+- 15mm cement and sand plaster internal (1:4): 130–230 ZMW/m²
+- 20mm cement and sand plaster external (1:3): 160–290 ZMW/m²
+- Plinth plaster (waterproof additive): 180–320 ZMW/m²
+- 50mm cement and sand screed (1:3) to floors: 160–280 ZMW/m²
+- Granolithic screed 25mm: 150–270 ZMW/m²
+
+FLOOR & WALL FINISHES:
+- Ceramic floor tiles 300×300mm supply and fix: 290–550 ZMW/m²
+- Ceramic floor tiles 600×600mm supply and fix: 380–700 ZMW/m²
+- Ceramic wall tiles supply and fix: 260–580 ZMW/m²
+- Tile skirting/cove: 260–420 ZMW/m
+- Vinyl/PVC floor covering: 150–320 ZMW/m²
 
 ROOFING:
-- IBR roofing sheets 0.5mm: 180–320 ZMW/m²
-- Corrugated iron sheets: 150–280 ZMW/m²
-- Timber purlins 76×50mm: 60–120 ZMW/lm
-- Pre-fabricated roof trusses: 350–700 ZMW/m² (plan area)
-- Fascia board: 80–160 ZMW/m
-- Barge board: 80–160 ZMW/m
-- Gutters & downpipes: 150–350 ZMW/m
+- IBR steel sheets 0.47mm supply and fix to timber purlins: 200–350 ZMW/m² (on slope)
+- Corrugated iron sheets 0.4mm supply and fix: 160–300 ZMW/m²
+- Ridge capping supply and fix: 120–250 ZMW/m
+- Barge board supply and fix: 90–180 ZMW/m
+- Fascia board (225×12mm) supply and fix: 90–180 ZMW/m
+- UPVC gutter supply and fix: 180–380 ZMW/m
+- UPVC downpipe supply and fix: 160–320 ZMW/m
+- Roof lining (sarking/breather membrane): 60–140 ZMW/m²
+- Treated timber rafters 150×50mm supply and fix: 110–200 ZMW/m
+- Treated timber purlins 75×75mm supply and fix: 70–140 ZMW/m
+- Treated timber wall plate 100×75mm supply and fix: 80–160 ZMW/m
+- Pre-fabricated roof trusses supply and erect (m² of plan area): 380–750 ZMW/m²
 
 STRUCTURAL STEEL:
-- Steel columns/beams (fabricated & erected): 80–160 ZMW/kg
-- Structural steel fabrication only: 60–120 ZMW/kg
-- Bolts & connections (M16–M24): 200–400 ZMW/No.
-- Steel base plates (fabricated): 80–160 ZMW/kg
-- Anti-corrosion paint on steel: 40–80 ZMW/m²
+- Structural steel sections (fabricated, primed, erected): 90–180 ZMW/kg
+- Steel base plates fabricated and fixed: 85–170 ZMW/kg
+- High-strength bolts M16–M24 supply and fix: 220–500 ZMW/No.
+- Anti-corrosion primer 1 coat on steel: 45–90 ZMW/m²
 
-DOORS & WINDOWS:
-- Flush door hollow-core 900×2100mm: 2,500–5,000 ZMW each
-- Flush door solid-core: 4,500–8,000 ZMW each
-- Steel security door: 6,000–15,000 ZMW each
-- Aluminium sliding window: 1,800–4,500 ZMW/m²
-- Steel door frame (supply & fix): 1,500–4,000 ZMW each
-- Door hardware (handle, hinges, lock set): 500–1,500 ZMW/set
-- Air brick (ventilation): 30–60 ZMW/No.
-- Minor ironmongery / bollards: 50–200 ZMW/Item
+JOINERY — DOORS & WINDOWS:
+- Hardwood (Mukwa/Rosewood) door frame supply and fix: 2,500–5,500 ZMW/No.
+- Flush solid-core door 825×1960mm supply and fix: 3,500–7,000 ZMW/No.
+- Flush solid-core door 925×1960mm supply and fix: 3,800–7,500 ZMW/No.
+- Steel security door supply and fix: 7,000–18,000 ZMW/No.
+- Aluminium glazed window supply and fix: 2,000–5,500 ZMW/m²
+- Three-lever mortice lock (Yale/Union): 800–1,800 ZMW/No.
+- Toilet indicator bolt: 300–700 ZMW/No.
+- Pair of 100mm butt hinges: 200–450 ZMW/No.
+- Door closer (overhead): 1,500–3,500 ZMW/No.
 
 PLUMBING & DRAINAGE:
-- uPVC soil pipe 110mm: 280–550 ZMW/lm
-- uPVC waste pipe 50mm: 150–300 ZMW/lm
-- PPR water supply pipe 20mm: 180–380 ZMW/lm
-- WC suite (close-coupled, supply & fix): 4,500–9,000 ZMW each
-- Wash basin including taps: 3,000–7,000 ZMW each
-- PVC storm drain 160mm: 350–650 ZMW/lm
-- Septic tank 1,500L prefab: 18,000–35,000 ZMW each
-- Floor/inspection manholes: 2,000–6,000 ZMW each
-- Copper PVC cable 2.5mm²: 1,500–2,500 ZMW/roll (100m roll)
+- uPVC soil/vent pipe 110mm supply and fix: 300–580 ZMW/m
+- uPVC waste pipe 50mm supply and fix: 160–320 ZMW/m
+- PPR hot/cold water pipe 20mm supply and fix: 200–420 ZMW/m
+- PPR hot/cold water pipe 25mm supply and fix: 260–500 ZMW/m
+- WC suite (close-coupled) supply and fix: 5,000–10,000 ZMW/No.
+- Wash hand basin (600mm) supply and fix: 3,500–8,000 ZMW/No.
+- Shower tray and fittings supply and fix: 4,000–9,000 ZMW/No.
+- Floor drain/gully supply and fix: 800–2,000 ZMW/No.
+- 160mm uPVC stormwater drain supply and fix: 380–700 ZMW/m
+- Brick/concrete inspection manhole (600mm deep): 5,000–12,000 ZMW/No.
+- Precast concrete septic tank 1500L supply and install: 20,000–40,000 ZMW/No.
+- Cold water storage tank 500L (HDPE): 8,000–20,000 ZMW/No.
 
 ELECTRICAL:
-- PVC conduit 20mm surface-mounted: 120–280 ZMW/lm
-- Single socket outlet 13A (supply & fix): 180–400 ZMW each (common: ~280)
-- Double socket outlet 13A: 300–600 ZMW each
-- Single light switch: 180–350 ZMW each
-- LED panel light fitting (supply & fix): 800–2,500 ZMW each
-- Fluorescent batten fitting: 400–900 ZMW each
-- Distribution board 8-way: 6,000–12,000 ZMW each
-- Main distribution board 100A+: 12,000–20,000 ZMW each (common: ~15,000)
-- Earthing & bonding (LS): 5,000–20,000 ZMW
-- Cable tray/trunking: 200–500 ZMW/m
+- 20mm PVC conduit surface-mounted supply and fix: 130–300 ZMW/m
+- 20mm PVC conduit concealed in wall/slab supply and fix: 160–350 ZMW/m
+- Single 13A socket outlet supply and fix: 200–450 ZMW/No.
+- Double 13A socket outlet supply and fix: 350–700 ZMW/No.
+- Single light switch supply and fix: 200–400 ZMW/No.
+- LED panel fitting supply and fix: 900–2,800 ZMW/No.
+- Fluorescent batten fitting 1200mm supply and fix: 450–1,000 ZMW/No.
+- 8-way distribution board supply and fix: 6,500–14,000 ZMW/No.
+- Main distribution board 100A supply and fix: 13,000–25,000 ZMW/No.
+- Consumer unit with MCBs: 5,000–12,000 ZMW/No.
+- Earthing and bonding system: 5,500–25,000 ZMW/Item
+- 2.5mm² PVC insulated cable in conduit supply and draw in: 35–80 ZMW/m
+- 4mm² cable: 50–110 ZMW/m
 
 PAINTING & DECORATION:
-- Emulsion paint 2 coats internal: 80–160 ZMW/m²
-- External masonry paint 2 coats: 100–200 ZMW/m²
-- Gloss paint on timber 2 coats: 120–220 ZMW/m²
-- Anti-corrosion primer on steel: 40–80 ZMW/m²
+- Emulsion paint 2 coats to internal walls and ceilings: 90–180 ZMW/m²
+- Masonry paint 2 coats external: 110–220 ZMW/m²
+- Gloss paint 2 coats to timber: 130–240 ZMW/m²
+- Anti-corrosion primer + gloss 2 coats to steelwork: 90–200 ZMW/m²
 
-RATE RULES:
-1. Use conservative (lower-end) rates when scope or spec is unclear.
-2. Set rate to null for: header rows, items with is_header=true, items where qty is also null.
-3. Compute amount = qty × rate (round to 2 decimal places). Never leave amount null when both qty and rate are set.
-4. All rates are in Zambian Kwacha (ZMW).
-5. For preliminary items (mobilization, demobilization, site establishment) that are typically absorbed into other rates rather than priced separately, set rate to null and note to "Incl".`;
+RATE ESTIMATION RULES:
+1. All rates are all-in (material + labour + plant + waste + contractor O&P) unless the item explicitly says "supply only" or "lay only".
+2. Use the mid-point of the range as your base rate. Adjust up toward the top of the range for: specialist materials, remote sites, small quantities (under 10% of typical bill quantity).
+3. Historical anchors (provided separately) take precedence over these ranges when the description and unit match closely — treat anchors as real market evidence.
+4. Set rate to null only for: is_header=true rows, Provisional Sum items (the PS amount is the "rate"), items where qty is also null and no reasonable assumption can be made.
+5. Compute amount = qty × rate exactly. Never leave amount null when both qty and rate are set.
+6. All rates in Zambian Kwacha (ZMW).
+7. Preliminary lump-sum items (mobilisation, dewatering, ant-proofing as Item): price the Item rate as the total cost — qty is 1.
+8. "Ditto" items inherit the rate of the immediately preceding item with the same unit in the same bill section.`;
 
 const RATES_SCHEMA = {
   type: SchemaType.OBJECT,
