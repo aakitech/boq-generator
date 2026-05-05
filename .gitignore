@@ -40,4 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# local dev artifacts
+tools/spike/test-*.xlsx
+tools/spike/review-artifacts/
+
 .vercel

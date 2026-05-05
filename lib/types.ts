@@ -134,6 +134,7 @@ export interface BOQDocument {
   prepared_by: string;
   date: string;
   bills: BOQBill[];
+  project_type?: string;
   
   pipeline_version?: string;
   document_classification?: DocumentClassification;

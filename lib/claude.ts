@@ -2342,6 +2342,9 @@ export async function generateBOQ(
       : undefined,
     buildSourceBundle(documents)
   );
+  if (opts?.rateContext?.projectType) {
+    boq.project_type = opts.rateContext.projectType;
+  }
   if (opts?.suggestRates) {
     return fillRatesPass(boq, { rateContext: opts.rateContext, usageCollector: opts.usageCollector });
   }
