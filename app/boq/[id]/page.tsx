@@ -18,7 +18,7 @@ interface DBBoq {
 interface AssistantMessage {
   role: "user" | "assistant";
   content: string;
-  tone?: "default" | "error" | "success";
+  tone?: "default" | "error" | "success" | "question";
 }
 
 interface AssistantDiff {
@@ -262,10 +262,15 @@ export default function BOQPage() {
     setAssistantMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
+      // Pass history excluding the empty assistant placeholder just added
+      const historyForApi = assistantMessages
+        .filter((m) => m.content.trim())
+        .map((m) => ({ role: m.role, content: m.content }));
+
       const res = await fetch(`/api/boqs/${boqId}/assistant/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction, boq }),
+        body: JSON.stringify({ instruction, boq, history: historyForApi }),
       });
 
       if (!res.ok) {
@@ -308,6 +313,7 @@ export default function BOQPage() {
           const payload = JSON.parse(dataLine.replace("data:", "").trim()) as {
             token?: string;
             step?: string;
+            question?: string;
             summary?: string;
             proposed_boq?: BOQDocument;
             diff?: AssistantDiff;
@@ -316,9 +322,8 @@ export default function BOQPage() {
           };
 
           if (eventType === "status") {
-            if (payload.step === "planning") setAssistantStatus("Thinking through your request...");
-            if (payload.step === "proposing")
-              setAssistantStatus("Building BOQ proposal for your review...");
+            if (payload.step === "planning") setAssistantStatus(null);
+            if (payload.step === "proposing") setAssistantStatus(null);
           }
 
           if (eventType === "token" && payload.token) {
@@ -326,21 +331,33 @@ export default function BOQPage() {
             updateDraft();
           }
 
+          if (eventType === "question" && payload.question) {
+            receivedProposal = true;
+            assistantDraft = payload.question;
+            setAssistantMessages((prev) => {
+              const next = [...prev];
+              const lastIdx = next.length - 1;
+              if (lastIdx >= 0 && next[lastIdx].role === "assistant") {
+                next[lastIdx] = { role: "assistant", content: payload.question!, tone: "question" };
+              }
+              return next;
+            });
+          }
+
           if (eventType === "result" && payload.proposed_boq && payload.diff) {
             receivedProposal = true;
-            const summary = payload.summary || "Prepared BOQ edits for your review.";
+            const summary = payload.summary || "Edits ready for review.";
             if (!assistantDraft.trim()) {
               assistantDraft = summary;
               updateDraft();
             }
-
             setAssistantPreview({
               summary,
               proposedBoq: payload.proposed_boq,
               diff: payload.diff,
             });
             appendAssistantMessage(
-              `Proposal ready. ${summary}\n${formatAssistantDiff(payload.diff)}\nReview it below, then apply or discard it.`,
+              `${summary}\n${formatAssistantDiff(payload.diff)}`,
               "success"
             );
             if (typeof payload.remainingCredits === "number") {
@@ -766,10 +783,10 @@ function AssistantPanel({
   }, [assistantMessages, assistantStatus]);
 
   const quickPrompts = [
-    "Rewrite all item descriptions to ASAQS standard — work method, material, location/dimension.",
-    "Fill ZMW rates for all unpriced items using Zambian market rates.",
-    "Add a 10% contingency provisional sum to the Preliminaries bill.",
-    "Check bill sequencing and reorder bills to correct trade order if needed.",
+    "Rewrite descriptions to ASAQS standard.",
+    "Fill ZMW rates for all unpriced items.",
+    "Add a 10% contingency to the Preliminaries bill.",
+    "Reorder bills to correct trade sequence.",
   ];
 
   return (
@@ -787,10 +804,7 @@ function AssistantPanel({
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3">
         {showWelcome ? (
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-3">
-            <p className="text-xs text-gray-400 leading-relaxed">
-              I know ASAQS measurement rules and Zambian market rates. Tell me what to change and I will prepare a proposal for your review before applying anything.
-            </p>
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
             <div className={`grid gap-1.5 transition-opacity ${assistantBusy ? "opacity-40 pointer-events-none" : ""}`}>
               {quickPrompts.map((prompt) => (
                 <button
@@ -817,6 +831,8 @@ function AssistantPanel({
                         ? "mr-auto bg-red-500/10 text-red-100 border border-red-500/20"
                         : message.tone === "success"
                           ? "mr-auto bg-emerald-500/10 text-emerald-100 border border-emerald-500/20"
+                        : message.tone === "question"
+                          ? "mr-auto bg-amber-500/10 text-amber-100 border border-amber-500/30"
                         : "mr-auto bg-white/[0.04] text-gray-300 border border-white/10"
                   }`}
                 >
@@ -892,7 +908,7 @@ function AssistantPanel({
       <div className="p-3 border-t border-white/10 space-y-2">
         <textarea
           className="boq-cell-editable text-white w-full min-h-[76px]"
-          placeholder="e.g. Rewrite the earthworks descriptions to ASAQS style, or add rates to Bill 3 using Zambian market rates."
+          placeholder="Tell me what to change…"
           value={assistantInput}
           onChange={(e) => onInputChange(e.target.value)}
           disabled={assistantBusy}

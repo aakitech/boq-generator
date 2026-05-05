@@ -130,6 +130,69 @@ const STREAM_SUMMARY_PROMPT = `You are a BOQ editing assistant. The user gave an
 Return a short plan summary in plain text with 2-4 concise bullets about what you will change.
 Do not include markdown code blocks.`;
 
+const SUMMARISE_HISTORY_PROMPT = `Summarise the following BOQ assistant conversation turns into 3-5 concise sentences. Capture: what the user asked for, what was changed, and any decisions or preferences the user expressed. Omit JSON. Plain text only.`;
+
+// A message in the conversation history passed from the frontend.
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+// The two response modes the assistant can return.
+// "question" = assistant needs clarification before acting (free, no credits).
+// "proposal" = assistant produced a BOQ edit (costs credits).
+export type AssistantResponseMode = "question" | "proposal";
+
+export type AssistantResponse =
+  | { mode: "question"; question: string }
+  | { mode: "proposal"; result: AssistantEditResult };
+
+// Compress older turns into a single summary string using Flash (cheap).
+async function summariseHistory(
+  turns: ChatMessage[],
+  usageCollector?: AssistantUsageCollector,
+): Promise<string> {
+  const transcript = turns
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n");
+
+  const model = getGenAI().getGenerativeModel({
+    model: FALLBACK_MODEL, // Flash — cheap
+    systemInstruction: SUMMARISE_HISTORY_PROMPT,
+    generationConfig: { temperature: 0 },
+  });
+
+  const result = await model.generateContent(transcript);
+  recordGeminiUsage(usageCollector, FALLBACK_MODEL, "assistant_history_summary", result.response.usageMetadata);
+  return result.response.text().trim();
+}
+
+// Build the conversation context block injected before the current instruction.
+// Keeps last 4 turns verbatim; compresses anything older into a summary.
+export async function buildConversationContext(
+  history: ChatMessage[],
+  usageCollector?: AssistantUsageCollector,
+): Promise<string> {
+  if (history.length === 0) return "";
+
+  const VERBATIM_TURNS = 4; // last N messages kept as-is
+  const older = history.slice(0, -VERBATIM_TURNS);
+  const recent = history.slice(-VERBATIM_TURNS);
+
+  const parts: string[] = [];
+
+  if (older.length > 0) {
+    const summary = await summariseHistory(older, usageCollector);
+    parts.push(`[Earlier conversation summary]\n${summary}`);
+  }
+
+  for (const msg of recent) {
+    parts.push(`${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`);
+  }
+
+  return parts.join("\n\n");
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -277,8 +340,9 @@ async function runAssistantModel(
   modelName: string,
   currentBoq: BOQDocument,
   instruction: string,
+  conversationContext: string,
   usageCollector?: AssistantUsageCollector,
-): Promise<AssistantEditResult> {
+): Promise<AssistantResponse> {
   const model = getGenAI().getGenerativeModel({
     model: modelName,
     systemInstruction: SYSTEM_PROMPT,
@@ -290,29 +354,57 @@ async function runAssistantModel(
     } as any,
   });
 
+  const contextBlock = conversationContext
+    ? `Conversation so far:\n${conversationContext}\n\n`
+    : "";
+
   const result = await model.generateContent(
     [
+      contextBlock,
       "Current BOQ JSON:",
       JSON.stringify(currentBoq),
       "",
-      "User edit instruction:",
+      "User instruction:",
       instruction,
       "",
-      "Return strict JSON with shape: {\"summary\": string, \"proposed_boq\": BOQDocument }",
+      'Decide: if the instruction is ambiguous or missing critical information (spec, scope, which bill), ask ONE short clarifying question instead of guessing. Otherwise produce the edit.',
+      'Return JSON: { "mode": "question", "question": "..." } OR { "mode": "proposal", "summary": "...", "proposed_boq": {...} }',
     ].join("\n")
   );
 
-  const parsed = parseAssistantJson(result.response.text());
   recordGeminiUsage(usageCollector, modelName, "assistant_proposal", result.response.usageMetadata);
-  const proposed = normalizeBoq(parsed.proposed_boq, currentBoq);
 
+  const raw = result.response.text();
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const first = raw.indexOf("{");
+    const last = raw.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      parsed = JSON.parse(raw.slice(first, last + 1)) as Record<string, unknown>;
+    } else {
+      throw new Error("Assistant returned non-JSON output");
+    }
+  }
+
+  if (parsed.mode === "question" && typeof parsed.question === "string") {
+    return { mode: "question", question: parsed.question };
+  }
+
+  // proposal mode (or legacy shape without mode field)
+  const boqData = (parsed.proposed_boq ?? parsed) as unknown;
+  const proposed = normalizeBoq(boqData, currentBoq);
   if (!proposed || !Array.isArray(proposed.bills)) {
     throw new Error("Assistant returned invalid BOQ structure");
   }
 
   return {
-    summary: parsed.summary || "Prepared BOQ edits from your instruction.",
-    proposed_boq: proposed,
+    mode: "proposal",
+    result: {
+      summary: (typeof parsed.summary === "string" ? parsed.summary : null) || "Prepared BOQ edits from your instruction.",
+      proposed_boq: proposed,
+    },
   };
 }
 
@@ -344,9 +436,13 @@ function parseAssistantJson(raw: string): { summary: string; proposed_boq: BOQDo
 async function runAssistantModelWithOpenAI(
   currentBoq: BOQDocument,
   instruction: string,
+  conversationContext: string,
   usageCollector?: AssistantUsageCollector,
-): Promise<AssistantEditResult> {
+): Promise<AssistantResponse> {
   const apiKey = ensureOpenAIConfigured();
+  const contextBlock = conversationContext
+    ? `Conversation so far:\n${conversationContext}\n\n`
+    : "";
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -361,13 +457,15 @@ async function runAssistantModelWithOpenAI(
         {
           role: "user",
           content: [
+            contextBlock,
             "Current BOQ JSON:",
             JSON.stringify(currentBoq),
             "",
-            "User edit instruction:",
+            "User instruction:",
             instruction,
             "",
-            'Return strict JSON with shape: {"summary": string, "proposed_boq": BOQDocument }',
+            'Decide: if the instruction is ambiguous or missing critical information, ask ONE short clarifying question. Otherwise produce the edit.',
+            'Return JSON: { "mode": "question", "question": "..." } OR { "mode": "proposal", "summary": "...", "proposed_boq": {...} }',
           ].join("\n"),
         },
       ],
@@ -400,16 +498,35 @@ async function runAssistantModelWithOpenAI(
 
   recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_proposal", payload.usage);
 
-  const parsed = parseAssistantJson(rawText);
-  const proposed = normalizeBoq(parsed.proposed_boq, currentBoq);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(rawText) as Record<string, unknown>;
+  } catch {
+    const first = rawText.indexOf("{");
+    const last = rawText.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      parsed = JSON.parse(rawText.slice(first, last + 1)) as Record<string, unknown>;
+    } else {
+      throw new Error("Assistant returned non-JSON output");
+    }
+  }
 
+  if (parsed.mode === "question" && typeof parsed.question === "string") {
+    return { mode: "question", question: parsed.question };
+  }
+
+  const boqData = (parsed.proposed_boq ?? parsed) as unknown;
+  const proposed = normalizeBoq(boqData, currentBoq);
   if (!proposed || !Array.isArray(proposed.bills)) {
     throw new Error("Assistant returned invalid BOQ structure");
   }
 
   return {
-    summary: parsed.summary || "Prepared BOQ edits from your instruction.",
-    proposed_boq: proposed,
+    mode: "proposal",
+    result: {
+      summary: (typeof parsed.summary === "string" ? parsed.summary : null) || "Prepared BOQ edits from your instruction.",
+      proposed_boq: proposed,
+    },
   };
 }
 
@@ -532,7 +649,8 @@ export async function proposeBOQEditWithAI(
   currentBoq: BOQDocument,
   instruction: string,
   usageCollector?: AssistantUsageCollector,
-): Promise<AssistantEditResult> {
+  conversationContext = "",
+): Promise<AssistantResponse> {
   const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
     (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
   );
@@ -542,13 +660,12 @@ export async function proposeBOQEditWithAI(
   for (const modelName of models) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
       try {
-        return await runAssistantModel(modelName, currentBoq, instruction, usageCollector);
+        return await runAssistantModel(modelName, currentBoq, instruction, conversationContext, usageCollector);
       } catch (err) {
         lastError = err;
         if (!isTransientGeminiError(err)) {
           break;
         }
-
         const isLastAttempt = attempt === MAX_ATTEMPTS_PER_MODEL;
         if (!isLastAttempt) {
           const backoffMs = Math.min(1000 * 2 ** (attempt - 1), 3000);
@@ -559,7 +676,7 @@ export async function proposeBOQEditWithAI(
   }
 
   try {
-    return await runAssistantModelWithOpenAI(currentBoq, instruction, usageCollector);
+    return await runAssistantModelWithOpenAI(currentBoq, instruction, conversationContext, usageCollector);
   } catch (openAIError) {
     const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
     const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
