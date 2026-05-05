@@ -766,9 +766,10 @@ function AssistantPanel({
   }, [assistantMessages, assistantStatus]);
 
   const quickPrompts = [
-    "Add sample rates and amounts to all measurable items.",
-    "Regroup electrical items into a separate bill.",
-    "Rewrite item descriptions to be concise and technical.",
+    "Rewrite all item descriptions to ASAQS standard — work method, material, location/dimension.",
+    "Fill ZMW rates for all unpriced items using Zambian market rates.",
+    "Add a 10% contingency provisional sum to the Preliminaries bill.",
+    "Check bill sequencing and reorder bills to correct trade order if needed.",
   ];
 
   return (
@@ -788,7 +789,7 @@ function AssistantPanel({
         {showWelcome ? (
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-3">
             <p className="text-xs text-gray-400 leading-relaxed">
-              Tell me what to change in this BOQ and I will generate a safe proposal first.
+              I know ASAQS measurement rules and Zambian market rates. Tell me what to change and I will prepare a proposal for your review before applying anything.
             </p>
             <div className={`grid gap-1.5 transition-opacity ${assistantBusy ? "opacity-40 pointer-events-none" : ""}`}>
               {quickPrompts.map((prompt) => (
@@ -891,7 +892,7 @@ function AssistantPanel({
       <div className="p-3 border-t border-white/10 space-y-2">
         <textarea
           className="boq-cell-editable text-white w-full min-h-[76px]"
-          placeholder="Describe the change — e.g. Add a drainage bill with 3 typical items."
+          placeholder="e.g. Rewrite the earthworks descriptions to ASAQS style, or add rates to Bill 3 using Zambian market rates."
           value={assistantInput}
           onChange={(e) => onInputChange(e.target.value)}
           disabled={assistantBusy}
