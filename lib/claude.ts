@@ -22,6 +22,7 @@ import type {
 } from "./types";
 import { computeDeterministicQA, mergeQAScores } from "./boq-qa";
 import { buildDefaultRateReference } from "./rate-reference";
+import { findRateAnchors } from "./rate-matcher";
 
 type QuantitySource = "explicit" | "derived" | "assumed";
 type SOWValidationResult = DocumentClassification;
@@ -1823,6 +1824,21 @@ function chunkArray<T>(items: T[], size: number): Array<T[]> {
   return chunks;
 }
 
+function buildRateLibraryAnchors(
+  batch: Array<{ item_key: string; description: string; unit: string }>
+): string {
+  const lines: string[] = [];
+  for (const item of batch) {
+    const anchors = findRateAnchors(item.description, item.unit, 2, 0.25);
+    for (const anchor of anchors) {
+      lines.push(
+        `- "${anchor.description}" (${anchor.unit}): ${anchor.rate} ZMW — from ${anchor.project}, ${anchor.province} [match score: ${anchor.score.toFixed(2)}]`
+      );
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : "No close historical matches found.";
+}
+
 function buildExistingRateReferences(
   existingRates: Array<{ description: string; unit: string; rate: number; bill: string }>,
   batch: Array<{ description: string; unit: string; bill: string }>
@@ -2117,6 +2133,9 @@ RATE PROVENANCE RULES:
 Existing workbook rates:
 ${JSON.stringify(buildExistingRateReferences(existingRates, batch))}
 
+Historical anchors from accepted Zambian BOQs (use as concrete reference points — prefer these over generic ranges when description and unit match closely):
+${buildRateLibraryAnchors(batch)}
+
 Items to fill:
 ${JSON.stringify(batch)}`,
     });
@@ -2199,13 +2218,21 @@ ${JSON.stringify(batch)}`,
 
 export type RateContext = {
   province: string;        // e.g. "Lusaka", "Copperbelt", "Eastern"
+  projectType: string;     // "building" | "civil" | "water_sanitation" | "road" | "mep" | "mixed"
   accessibility: string;  // "main_road" | "gravel_road" | "remote"
   labourSource: string;   // "local_unskilled" | "mixed" | "imported_skilled"
-  equipment: string;      // "contractor_owned" | "mostly_hired"
-  marginPct: number;       // e.g. 10, 15, 20
+  marginPct: number;      // e.g. 10, 15, 20
 };
 
 function buildRateContextBlock(ctx: RateContext): string {
+  const projectTypeLabel =
+    ctx.projectType === "building" ? "Building construction (residential/commercial/institutional)" :
+    ctx.projectType === "civil" ? "Civil works (structures, drainage, earthworks)" :
+    ctx.projectType === "water_sanitation" ? "Water & sanitation (pipework, tanks, treatment)" :
+    ctx.projectType === "road" ? "Road & pavement works" :
+    ctx.projectType === "mep" ? "Mechanical, electrical & plumbing (MEP)" :
+    "Mixed / multi-discipline works";
+
   const accessibilityLabel =
     ctx.accessibility === "main_road" ? "Good access (main road) — standard transport costs" :
     ctx.accessibility === "gravel_road" ? "Gravel/secondary road — add 10–20% transport premium" :
@@ -2216,19 +2243,15 @@ function buildRateContextBlock(ctx: RateContext): string {
     ctx.labourSource === "mixed" ? "Mix of local and imported skilled trades (use mid-range rates)" :
     "Mostly imported or specialist skilled labour required (use upper-end rates)";
 
-  const equipmentLabel =
-    ctx.equipment === "contractor_owned" ? "Contractor owns most equipment (exclude hire premium)" :
-    "Most plant and equipment hired in (include plant hire margin in rates)";
-
   return `
 SITE-SPECIFIC CONTEXT — adjust all rates accordingly:
 - Province: ${ctx.province}
+- Project type: ${projectTypeLabel}
 - Site accessibility: ${accessibilityLabel}
 - Labour: ${labourLabel}
-- Equipment: ${equipmentLabel}
 - Target overhead & profit margin: ${ctx.marginPct}% (apply this markup on top of base rates)
 
-Apply these adjustments consistently across all items. Transport-sensitive items (materials, concrete, steel) are most affected by accessibility.`.trim();
+Apply these adjustments consistently. Transport-sensitive items (materials, concrete, steel) are most affected by accessibility. Weight rate library anchors toward entries from similar project types.`.trim();
 }
 
 export async function fillMissingRatesInExistingBOQ(
@@ -2265,6 +2288,7 @@ export async function generateBOQ(
   input: string | GenerationInputBundle,
   opts?: {
     suggestRates?: boolean;
+    rateContext?: RateContext;
     documentClassification?: DocumentClassification;
     usageCollector?: GeminiUsageCollector;
   }
@@ -2319,7 +2343,7 @@ export async function generateBOQ(
     buildSourceBundle(documents)
   );
   if (opts?.suggestRates) {
-    return fillRatesPass(boq, { usageCollector: opts.usageCollector });
+    return fillRatesPass(boq, { rateContext: opts.rateContext, usageCollector: opts.usageCollector });
   }
   return boq;
 }

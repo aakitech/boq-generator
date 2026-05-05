@@ -87,10 +87,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { text, documents, suggest_rates } = body as {
+    const { text, documents, suggest_rates, rate_context } = body as {
       text?: string;
       documents?: GenerationInputDocument[];
       suggest_rates?: boolean;
+      rate_context?: import("@/lib/claude").RateContext;
       is_sow?: boolean;
       sow_warning?: string;
       document_type?: string;
@@ -156,6 +157,7 @@ export async function POST(req: NextRequest) {
       { documents: truncatedDocuments },
       {
         suggestRates: suggest_rates ?? false,
+        rateContext: rate_context,
         documentClassification: validation,
         usageCollector,
       }

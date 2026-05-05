@@ -110,6 +110,8 @@ function GenerateBOQTab() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [suggestRates, setSuggestRates] = useState(false);
+  const [ctx, setCtx] = useState<RateContext>(DEFAULT_CONTEXT);
+  const [customMargin, setCustomMargin] = useState(false);
   const [sowWarning, setSowWarning] = useState<string | null>(null);
   const [isSOW, setIsSOW] = useState<boolean | null>(null);
   const [boqId, setBoqId] = useState<string | null>(null);
@@ -441,6 +443,7 @@ function GenerateBOQTab() {
           text,
           documents,
           suggest_rates: suggestRates,
+          rate_context: ctx,
           is_sow: isSOW,
           sow_warning: sowWarning,
           document_type: classification?.documentType,
@@ -756,10 +759,7 @@ function GenerateBOQTab() {
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-white">Starter credits available</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Your starter credits apply first, so you can keep going before paid options are needed.
-                </p>
+                <p className="text-sm font-medium text-white">Credits available</p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />
             </div>
@@ -770,11 +770,9 @@ function GenerateBOQTab() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-white font-semibold text-lg">BOQ Generation</p>
-              <p className="text-gray-400 text-sm mt-0.5">Start with credits, then pay based on project size</p>
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">1,000 starter credits</p>
             </div>
           </div>
           <ul className="space-y-2">
@@ -793,6 +791,98 @@ function GenerateBOQTab() {
           </ul>
         </div>
 
+        <div className="space-y-3">
+          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Project context</p>
+
+          {/* Province */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <p className="text-xs font-medium text-white">Province</p>
+            <div className="flex flex-wrap gap-1.5">
+              {PROVINCES.map((p) => (
+                <button key={p} onClick={() => setCtx((c) => ({ ...c, province: p }))}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${ctx.province === p ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Project type */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <p className="text-xs font-medium text-white">Project type</p>
+            <div className="flex flex-wrap gap-1.5">
+              {PROJECT_TYPES.map(({ val, label }) => (
+                <button key={val} onClick={() => setCtx((c) => ({ ...c, projectType: val }))}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${ctx.projectType === val ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Accessibility */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
+            <p className="text-xs font-medium text-white">Site access</p>
+            <div className="flex flex-col gap-1.5">
+              {[
+                { val: "main_road", label: "Main road" },
+                { val: "gravel_road", label: "Gravel / secondary road" },
+                { val: "remote", label: "Remote / bush site" },
+              ].map(({ val, label }) => (
+                <button key={val} onClick={() => setCtx((c) => ({ ...c, accessibility: val }))}
+                  className={`flex items-center gap-2 px-3 py-2 rounded text-left transition-colors ${ctx.accessibility === val ? "bg-amber-400/15 border border-amber-400/40" : "bg-white/5 border border-white/10 hover:bg-white/10"}`}>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.accessibility === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-xs text-white">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Labour */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
+            <p className="text-xs font-medium text-white">Labour source</p>
+            <div className="flex flex-col gap-1.5">
+              {[
+                { val: "local_unskilled", label: "Mostly local unskilled" },
+                { val: "mixed", label: "Mix of skilled & unskilled" },
+                { val: "imported_skilled", label: "Imported / specialist trades" },
+              ].map(({ val, label }) => (
+                <button key={val} onClick={() => setCtx((c) => ({ ...c, labourSource: val }))}
+                  className={`flex items-center gap-2 px-3 py-2 rounded text-left transition-colors ${ctx.labourSource === val ? "bg-amber-400/15 border border-amber-400/40" : "bg-white/5 border border-white/10 hover:bg-white/10"}`}>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-xs text-white">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Margin */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <p className="text-xs font-medium text-white">Overhead & profit margin</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[10, 15, 20].map((pct) => (
+                <button key={pct}
+                  onClick={() => { setCtx((c) => ({ ...c, marginPct: pct })); setCustomMargin(false); }}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${ctx.marginPct === pct && !customMargin ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                  {pct}%
+                </button>
+              ))}
+              <button onClick={() => setCustomMargin(true)}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${customMargin ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                Custom
+              </button>
+            </div>
+            {customMargin && (
+              <div className="flex items-center gap-2">
+                <input type="number" min={1} max={50} value={ctx.marginPct}
+                  onChange={(e) => setCtx((c) => ({ ...c, marginPct: Math.min(50, Math.max(1, Number(e.target.value) || 15)) }))}
+                  className="w-16 px-2 py-1.5 rounded bg-white/10 border border-white/20 text-white text-xs text-center focus:outline-none focus:border-amber-400/60" />
+                <span className="text-xs text-gray-400">%</span>
+              </div>
+            )}
+          </div>
+        </div>
+
         <label className="flex items-start gap-3 cursor-pointer select-none group">
           <div className="relative mt-0.5 shrink-0">
             <input type="checkbox" className="sr-only peer" checked={suggestRates}
@@ -802,7 +892,7 @@ function GenerateBOQTab() {
           </div>
           <div>
             <p className="text-sm text-white font-medium group-has-[:checked]:text-amber-400 transition-colors">Include AI rate estimates</p>
-            <p className="text-xs text-gray-500 mt-0.5">AI suggests typical ZMW rates based on the Zambian construction market. Review and adjust before use.</p>
+            <p className="text-xs text-gray-500 mt-0.5">AI suggests ZMW rates using the context above.</p>
           </div>
         </label>
 
@@ -822,7 +912,7 @@ function GenerateBOQTab() {
           ) : primaryActionLabel}
         </button>
 
-        <p className="text-xs text-gray-600">Price is based on the estimated value of your BOQ. No charge until you review and confirm.</p>
+        <p className="text-xs text-gray-600">No charge until you review and confirm.</p>
 
         {stage === "generating" && (
           <div className="space-y-2">
@@ -838,8 +928,7 @@ function GenerateBOQTab() {
     <>
       <div className="text-center mb-8">
         <p className="text-gray-400 text-sm leading-relaxed">
-          Upload a Scope of Work PDF or Word doc. Get a tender-ready
-          <br />Bill of Quantities in under 60 seconds.
+          Upload a Scope of Work — get a structured Bill of Quantities.
         </p>
       </div>
 
@@ -919,10 +1008,7 @@ function GenerateBOQTab() {
         {isProcessing ? (stage === "extracting" ? "Extracting…" : "Redirecting…") : "Continue →"}
       </button>
 
-      <p className="mt-8 text-center text-xs text-gray-600">
-        Supports civil, mechanical, and infrastructure SOW documents.
-        <br />Output matches standard Zambian tender BOQ format (ZMW).
-      </p>
+      <p className="mt-8 text-center text-xs text-gray-600">ZMW · Zambian tender format</p>
     </>
   );
 }
@@ -940,9 +1026,9 @@ interface BOQPreview {
 
 interface RateContext {
   province: string;
+  projectType: string;
   accessibility: string;
   labourSource: string;
-  equipment: string;
   marginPct: number;
 }
 
@@ -951,11 +1037,20 @@ const PROVINCES = [
   "Western", "Luapula", "North-Western", "Muchinga", "Central",
 ];
 
+const PROJECT_TYPES = [
+  { val: "building", label: "Building" },
+  { val: "civil", label: "Civil works" },
+  { val: "water_sanitation", label: "Water & sanitation" },
+  { val: "road", label: "Road & pavement" },
+  { val: "mep", label: "MEP" },
+  { val: "mixed", label: "Mixed" },
+];
+
 const DEFAULT_CONTEXT: RateContext = {
   province: "Lusaka",
+  projectType: "building",
   accessibility: "main_road",
   labourSource: "mixed",
-  equipment: "contractor_owned",
   marginPct: 15,
 };
 
@@ -1164,7 +1259,7 @@ function RateBOQTab() {
           </div>
           <h2 className="text-xl font-bold text-white">Tell us about the project</h2>
           <p className="text-xs text-gray-400 mt-1">
-            These 5 questions help the AI calibrate rates to your actual site conditions.
+            4 quick questions help the AI calibrate rates to your actual site conditions.
           </p>
         </div>
 
@@ -1187,10 +1282,28 @@ function RateBOQTab() {
             </div>
           </div>
 
-          {/* Q2 Site accessibility */}
+          {/* Q2 Project type */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">2. How accessible is the site?</p>
-            <p className="text-xs text-gray-500">This affects transport premiums on materials.</p>
+            <p className="text-sm font-medium text-white">2. What type of project is this?</p>
+            <div className="flex flex-wrap gap-2">
+              {PROJECT_TYPES.map(({ val, label }) => (
+                <button key={val}
+                  onClick={() => setCtx((c) => ({ ...c, projectType: val }))}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    ctx.projectType === val
+                      ? "bg-amber-400 text-black"
+                      : "bg-white/10 text-gray-300 hover:bg-white/15"
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Q3 Site accessibility */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
+            <p className="text-sm font-medium text-white">3. How accessible is the site?</p>
+            <p className="text-xs text-gray-500">Affects transport premiums on materials.</p>
             <div className="space-y-2 mt-1">
               {[
                 { val: "main_road", label: "Main road access", sub: "Standard transport costs" },
@@ -1213,13 +1326,13 @@ function RateBOQTab() {
             </div>
           </div>
 
-          {/* Q3 Labour */}
+          {/* Q4 Labour */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">3. What&apos;s the expected labour source?</p>
+            <p className="text-sm font-medium text-white">4. Expected labour source?</p>
             <div className="space-y-2 mt-1">
               {[
                 { val: "local_unskilled", label: "Mostly local unskilled labour", sub: "Lower labour rates, minimal mobilisation" },
-                { val: "mixed", label: "Mix of skilled & unskilled", sub: "Mid-range rates — most common scenario" },
+                { val: "mixed", label: "Mix of skilled & unskilled", sub: "Mid-range rates — most common" },
                 { val: "imported_skilled", label: "Mostly imported / specialist trades", sub: "Higher rates + accommodation & mobilisation" },
               ].map(({ val, label, sub }) => (
                 <button key={val} onClick={() => setCtx((c) => ({ ...c, labourSource: val }))}
@@ -1229,30 +1342,6 @@ function RateBOQTab() {
                       : "bg-white/5 border border-white/10 hover:bg-white/10"
                   }`}>
                   <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
-                  <span>
-                    <span className="text-sm text-white block">{label}</span>
-                    <span className="text-xs text-gray-400">{sub}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Q4 Equipment */}
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">4. How will plant & equipment be sourced?</p>
-            <div className="space-y-2 mt-1">
-              {[
-                { val: "contractor_owned", label: "Contractor owns most equipment", sub: "No external hire premium" },
-                { val: "mostly_hired", label: "Mostly hired in", sub: "Include plant hire margin in rates" },
-              ].map(({ val, label, sub }) => (
-                <button key={val} onClick={() => setCtx((c) => ({ ...c, equipment: val }))}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${
-                    ctx.equipment === val
-                      ? "bg-amber-400/15 border border-amber-400/40"
-                      : "bg-white/5 border border-white/10 hover:bg-white/10"
-                  }`}>
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.equipment === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
                   <span>
                     <span className="text-sm text-white block">{label}</span>
                     <span className="text-xs text-gray-400">{sub}</span>
@@ -1344,10 +1433,7 @@ function RateBOQTab() {
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-white">Starter credits available</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Your starter credits apply first, so you can keep going before paid options are needed.
-                </p>
+                <p className="text-sm font-medium text-white">Credits available</p>
               </div>
               <CreditBadge remainingCredits={remainingCredits} />
             </div>
@@ -1358,13 +1444,6 @@ function RateBOQTab() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-white font-semibold text-lg">BOQ Rate Filling</p>
-              <p className="text-gray-400 text-sm mt-0.5">
-                {remainingCredits > 0
-                  ? "Use starter credits now"
-                  : PAYMENT_MODE !== "stripe"
-                    ? "Request manual payment and wait for approval"
-                    : "One-time instant delivery"}
-              </p>
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold text-amber-400">
@@ -1450,11 +1529,7 @@ function RateBOQTab() {
         )}
 
         <p className="text-xs text-gray-600">
-          {remainingCredits > 0
-            ? `Your starter credits apply first. ${PAYMENT_MODE === "stripe" ? "Stripe checkout" : PAYMENT_MODE === "hybrid" ? "manual payment or Stripe" : "manual payment options"} only appear after those credits are used.`
-            : PAYMENT_MODE !== "stripe"
-              ? "Manual payment is confirmed by our team before this rated BOQ is unlocked."
-              : "Secure payment via Stripe. You will be redirected back after payment."}
+          {PAYMENT_MODE !== "stripe" ? "Manual payment confirmed by our team before unlocking." : "Secure checkout via Stripe."}
         </p>
 
         {stage === "paying" && (remainingCredits > 0 || PAYMENT_MODE === "stripe" || PAYMENT_MODE === "hybrid") && (
@@ -1474,8 +1549,7 @@ function RateBOQTab() {
     <>
       <div className="text-center mb-8">
         <p className="text-gray-400 text-sm leading-relaxed">
-          Upload an Excel BOQ that&apos;s missing rates.
-          <br />AI fills rates using Southern African construction market context.
+          Upload an Excel BOQ — AI fills the missing rates.
         </p>
       </div>
 
