@@ -3,8 +3,8 @@ import { NextRequest } from "next/server";
 import type { BOQDocument } from "@/lib/types";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { proposeBOQEditWithAI, streamAssistantSummary, buildConversationContext, type AssistantUsageCollector, type ChatMessage } from "@/lib/boq-assistant";
-import { consumeWalletCredits, getRemainingCredits } from "@/lib/credits";
-import { creditsForAssistantEdit, summarizeAIUsage } from "@/lib/gemini-pricing";
+import { consumeWalletCredits } from "@/lib/credits";
+import { summarizeAIUsage } from "@/lib/gemini-pricing";
 import { trackEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
@@ -141,14 +141,6 @@ export async function POST(
           return;
         }
 
-        // Proposal mode: check credits before streaming summary.
-        const currentCredits = await getRemainingCredits(serviceClient, user.id);
-        if (currentCredits < 1) {
-          write("error", { message: "No credits remaining for the AI assistant.", status: 402 });
-          controller.close();
-          return;
-        }
-
         const { result } = response;
 
         write("status", { step: "proposing" });
@@ -158,7 +150,7 @@ export async function POST(
 
         const diff = buildDiffSummary(sourceBoq, result.proposed_boq);
         const usageSummary = summarizeAIUsage(usageCollector.entries);
-        const assistantCredits = Math.max(creditsForAssistantEdit(), usageSummary.creditsCharged, 1);
+        const assistantCredits = Math.max(usageSummary.creditsCharged, 1);
         const creditResult = await consumeWalletCredits(serviceClient, {
           userId: user.id,
           reason: "assistant_boq",

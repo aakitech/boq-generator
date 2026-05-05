@@ -643,12 +643,7 @@ function GenerateBOQTab() {
                 <p className={`text-xs font-semibold ${classification.shouldBlockGeneration ? "text-yellow-200" : "text-green-200"}`}>
                   {classification.shouldBlockGeneration ? "Upload blocked" : "Document accepted"}
                 </p>
-                <p className="text-xs text-white/90">
-                  {sowWarning ||
-                    (hasOptionalSupportingDocs
-                      ? "You can continue with the SOW only."
-                      : "This document is ready for BOQ generation.")}
-                </p>
+                {sowWarning && <p className="text-xs text-white/90">{sowWarning}</p>}
               </div>
             </div>
 
@@ -657,11 +652,6 @@ function GenerateBOQTab() {
                 <p className="text-[11px] uppercase tracking-wide text-gray-300">
                   {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
                 </p>
-                {!classification.shouldBlockGeneration && (
-                  <p className="text-[11px] text-gray-400">
-                    Only add these if you already have them and want a better result.
-                  </p>
-                )}
                 {(classification.shouldBlockGeneration
                   ? classification.requiredAttachments
                   : classification.requiredAttachments.slice(0, 1)
@@ -687,9 +677,7 @@ function GenerateBOQTab() {
                           <p className="text-[11px] text-amber-200 mt-1">Processing attachment...</p>
                         )}
                         {current?.processedDoc && !current.processing && (
-                          <p className="text-[11px] text-green-300 mt-1">
-                            Added to source bundle as {current.processedDoc.document_id}
-                          </p>
+                          <p className="text-[11px] text-green-300 mt-1">Added</p>
                         )}
                         {current?.error && (
                           <p className="text-[11px] text-red-300 mt-1">{current.error}</p>
@@ -725,8 +713,8 @@ function GenerateBOQTab() {
               <div>
                 <p className="text-[11px] text-gray-400 mt-2">
                   {processedSupportingCount > 0
-                    ? `${processedSupportingCount} supporting document${processedSupportingCount === 1 ? "" : "s"} added.`
-                    : "SOW ready for generation."}
+                    ? `${processedSupportingCount} supporting doc${processedSupportingCount === 1 ? "" : "s"} added.`
+                    : null}
                 </p>
               </div>
             )}
@@ -756,43 +744,12 @@ function GenerateBOQTab() {
         </div>
 
         {remainingCredits > 0 ? (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-white">Credits available</p>
-              </div>
-              <CreditBadge remainingCredits={remainingCredits} />
-            </div>
+          <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+            <CreditBadge remainingCredits={remainingCredits} />
           </div>
         ) : null}
 
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 text-left space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-white font-semibold text-lg">BOQ Generation</p>
-            </div>
-            <div className="text-right">
-              <p className="text-lg font-bold text-amber-400">From $20</p>
-            </div>
-          </div>
-          <ul className="space-y-2">
-            {[
-              "Structured BOQ with bill sections",
-              "Editable table - adjust quantities and descriptions",
-              "Download .xlsx in Southern African tender format",
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                </svg>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-
         <div className="space-y-3">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Project context</p>
 
           {/* Province */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
@@ -912,12 +869,10 @@ function GenerateBOQTab() {
           ) : primaryActionLabel}
         </button>
 
-        <p className="text-xs text-gray-600">No charge until you review and confirm.</p>
-
         {stage === "generating" && (
           <div className="space-y-2">
             <Progress value={60} className="h-1.5 bg-white/10" />
-            <p className="text-xs text-gray-400">AI is analysing your Scope of Work… this takes about 30–60 seconds</p>
+            <p className="text-xs text-gray-400">Analysing scope… ~30–60 seconds</p>
           </div>
         )}
       </div>
@@ -926,11 +881,6 @@ function GenerateBOQTab() {
 
   return (
     <>
-      <div className="text-center mb-8">
-        <p className="text-gray-400 text-sm leading-relaxed">
-          Upload a Scope of Work — get a structured Bill of Quantities.
-        </p>
-      </div>
 
       <div
         className={`relative rounded-xl border-2 border-dashed transition-colors cursor-pointer p-10 text-center
@@ -1008,7 +958,7 @@ function GenerateBOQTab() {
         {isProcessing ? (stage === "extracting" ? "Extracting…" : "Redirecting…") : "Continue →"}
       </button>
 
-      <p className="mt-8 text-center text-xs text-gray-600">ZMW · Zambian tender format</p>
+      <p className="mt-8 text-center text-xs text-gray-600">PDF or Word · ZMW · Zambian tender format</p>
     </>
   );
 }
@@ -1257,16 +1207,13 @@ function RateBOQTab() {
             </svg>
             {preview?.totalItems} items · {preview?.missingRateCount} missing rates
           </div>
-          <h2 className="text-xl font-bold text-white">Tell us about the project</h2>
-          <p className="text-xs text-gray-400 mt-1">
-            4 quick questions help the AI calibrate rates to your actual site conditions.
-          </p>
+          <h2 className="text-xl font-bold text-white">Project context</h2>
         </div>
 
         <div className="space-y-4">
           {/* Q1 Province */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">1. Which province is the project in?</p>
+            <p className="text-sm font-medium text-white">Province</p>
             <div className="flex flex-wrap gap-2">
               {PROVINCES.map((p) => (
                 <button key={p}
@@ -1284,7 +1231,7 @@ function RateBOQTab() {
 
           {/* Q2 Project type */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">2. What type of project is this?</p>
+            <p className="text-sm font-medium text-white">Project type</p>
             <div className="flex flex-wrap gap-2">
               {PROJECT_TYPES.map(({ val, label }) => (
                 <button key={val}
@@ -1302,59 +1249,51 @@ function RateBOQTab() {
 
           {/* Q3 Site accessibility */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">3. How accessible is the site?</p>
-            <p className="text-xs text-gray-500">Affects transport premiums on materials.</p>
+            <p className="text-sm font-medium text-white">Site access</p>
             <div className="space-y-2 mt-1">
               {[
-                { val: "main_road", label: "Main road access", sub: "Standard transport costs" },
-                { val: "gravel_road", label: "Gravel / secondary road", sub: "+10–20% transport premium" },
-                { val: "remote", label: "Remote or bush site", sub: "+25–40% transport premium" },
-              ].map(({ val, label, sub }) => (
+                { val: "main_road", label: "Main road" },
+                { val: "gravel_road", label: "Gravel / secondary road" },
+                { val: "remote", label: "Remote / bush site" },
+              ].map(({ val, label }) => (
                 <button key={val} onClick={() => setCtx((c) => ({ ...c, accessibility: val }))}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
                     ctx.accessibility === val
                       ? "bg-amber-400/15 border border-amber-400/40"
                       : "bg-white/5 border border-white/10 hover:bg-white/10"
                   }`}>
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.accessibility === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
-                  <span>
-                    <span className="text-sm text-white block">{label}</span>
-                    <span className="text-xs text-gray-400">{sub}</span>
-                  </span>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.accessibility === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-sm text-white">{label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Q4 Labour */}
+          {/* Labour */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">4. Expected labour source?</p>
+            <p className="text-sm font-medium text-white">Labour source</p>
             <div className="space-y-2 mt-1">
               {[
-                { val: "local_unskilled", label: "Mostly local unskilled labour", sub: "Lower labour rates, minimal mobilisation" },
-                { val: "mixed", label: "Mix of skilled & unskilled", sub: "Mid-range rates — most common" },
-                { val: "imported_skilled", label: "Mostly imported / specialist trades", sub: "Higher rates + accommodation & mobilisation" },
-              ].map(({ val, label, sub }) => (
+                { val: "local_unskilled", label: "Mostly local unskilled" },
+                { val: "mixed", label: "Mix of skilled & unskilled" },
+                { val: "imported_skilled", label: "Imported / specialist trades" },
+              ].map(({ val, label }) => (
                 <button key={val} onClick={() => setCtx((c) => ({ ...c, labourSource: val }))}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
                     ctx.labourSource === val
                       ? "bg-amber-400/15 border border-amber-400/40"
                       : "bg-white/5 border border-white/10 hover:bg-white/10"
                   }`}>
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
-                  <span>
-                    <span className="text-sm text-white block">{label}</span>
-                    <span className="text-xs text-gray-400">{sub}</span>
-                  </span>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-sm text-white">{label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Q5 Margin */}
+          {/* Margin */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">5. Target overhead & profit margin</p>
-            <p className="text-xs text-gray-500">Applied on top of base construction rates.</p>
+            <p className="text-sm font-medium text-white">Overhead & profit margin</p>
             <div className="flex flex-wrap gap-2 mt-1">
               {[10, 15, 20].map((pct) => (
                 <button key={pct}
@@ -1393,7 +1332,7 @@ function RateBOQTab() {
         <button
           onClick={handleQuestionsSubmit}
           className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors">
-          Continue to unlock options -&gt;
+          Continue →
         </button>
       </div>
     );
@@ -1430,46 +1369,10 @@ function RateBOQTab() {
         </div>
 
         {remainingCredits > 0 ? (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-white">Credits available</p>
-              </div>
-              <CreditBadge remainingCredits={remainingCredits} />
-            </div>
+          <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+            <CreditBadge remainingCredits={remainingCredits} />
           </div>
         ) : null}
-
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 text-left space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-white font-semibold text-lg">BOQ Rate Filling</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-amber-400">
-                {remainingCredits > 0 ? "Credits" : `$${(rateAmountCents / 100).toFixed(0)}`}
-              </p>
-              <p className="text-xs text-gray-500">
-                {remainingCredits > 0 ? `${remainingCredits.toLocaleString()} credits left` : "USD"}
-              </p>
-            </div>
-          </div>
-          <ul className="space-y-2">
-            {[
-              `AI fills rates for ${preview?.missingRateCount} items calibrated to ${ctx.province} conditions`,
-              "Download your original Excel file with rates added in-place",
-              "Or download a freshly formatted BOQ in our house style",
-              "Editable in the BOQ editor - review and adjust before exporting",
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                </svg>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
 
         {remainingCredits > 0 || PAYMENT_MODE === "stripe" ? (
           <button
@@ -1478,9 +1381,9 @@ function RateBOQTab() {
             {stage === "paying" ? (
               <>
                 <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
-                {remainingCredits > 0 ? "Unlocking with credits..." : "Opening secure checkout..."}
+                {remainingCredits > 0 ? "Unlocking…" : "Opening checkout…"}
               </>
-            ) : remainingCredits > 0 ? "Use Credits & Add Rates ->" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates ->`}
+            ) : remainingCredits > 0 ? "Unlock with Credits →" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates →`}
           </button>
         ) : (
           <ManualPaymentOptions
@@ -1528,15 +1431,11 @@ function RateBOQTab() {
           />
         )}
 
-        <p className="text-xs text-gray-600">
-          {PAYMENT_MODE !== "stripe" ? "Manual payment confirmed by our team before unlocking." : "Secure checkout via Stripe."}
-        </p>
-
         {stage === "paying" && (remainingCredits > 0 || PAYMENT_MODE === "stripe" || PAYMENT_MODE === "hybrid") && (
           <div className="space-y-2">
             <Progress value={92} className="h-1.5 bg-white/10" />
             <p className="text-xs text-gray-400">
-              {remainingCredits > 0 ? "Unlocking your rated BOQ..." : "Redirecting to Stripe checkout..."}
+              {remainingCredits > 0 ? "Unlocking…" : "Redirecting to Stripe…"}
             </p>
           </div>
         )}
@@ -1547,11 +1446,6 @@ function RateBOQTab() {
   // Upload screen
   return (
     <>
-      <div className="text-center mb-8">
-        <p className="text-gray-400 text-sm leading-relaxed">
-          Upload an Excel BOQ — AI fills the missing rates.
-        </p>
-      </div>
 
       <div
         className={`relative rounded-xl border-2 border-dashed transition-colors cursor-pointer p-10 text-center
@@ -1617,10 +1511,7 @@ function RateBOQTab() {
         ) : "Validate & Continue ->"}
       </button>
 
-      <p className="mt-8 text-center text-xs text-gray-600">
-        Works with any BOQ structure. Items, quantities, and descriptions are preserved verbatim.
-        <br />Rates are calibrated to your site location, labour, and margin.
-      </p>
+      <p className="mt-8 text-center text-xs text-gray-600">Excel (.xlsx) · rates calibrated to your location</p>
     </>
   );
 }

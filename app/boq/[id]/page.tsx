@@ -235,18 +235,6 @@ export default function BOQPage() {
 
   async function handleAssistantSubmit() {
     if (!boq || assistantBusy) return;
-    if (remainingCredits < 1) {
-      setAssistantMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "No credits remaining for the AI assistant.",
-          tone: "error",
-        },
-      ]);
-      return;
-    }
-
     const instruction = assistantInput.trim();
     if (!instruction) return;
 
