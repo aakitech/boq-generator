@@ -176,7 +176,6 @@ function writeBillTitle(
   numCell.font = baseFont(true, 12);
   numCell.fill = BILL_HEADER_FILL;
   numCell.alignment = leftMiddle();
-  numCell.border = THIN_BORDER;
   numRow.height = 20;
   r++;
 
@@ -188,7 +187,6 @@ function writeBillTitle(
   titleCell.font = baseFont(true, 12);
   titleCell.fill = BILL_HEADER_FILL;
   titleCell.alignment = leftMiddle(true);
-  titleCell.border = THIN_BORDER;
   titleRow.height = 20;
   r++;
 
@@ -219,7 +217,7 @@ function writeBillItems(
 
   for (const item of bill.items) {
     if (item.is_header) {
-      // Section heading — spans description through amount
+      // Section heading — spans description through amount, no border
       const row = sheet.getRow(r);
       mergeRow(sheet, r, COL_DESC, COL_AMOUNT);
       const cell = row.getCell(COL_DESC);
@@ -227,42 +225,36 @@ function writeBillItems(
       cell.font = baseFont(true);
       cell.fill = NO_FILL;
       cell.alignment = leftMiddle();
-      cell.border = THIN_BORDER;
       row.height = 18;
     } else {
-      // Measurable item row
+      // Measurable item row — no borders, clean open look
       const row = sheet.getRow(r);
 
       const itemRef = row.getCell(COL_ITEM);
       itemRef.value = alphaItem(itemIndex);
       itemRef.font = baseFont(false);
       itemRef.alignment = centerMiddle();
-      itemRef.border = THIN_BORDER;
 
       const desc = row.getCell(COL_DESC);
       desc.value = item.description;
       desc.font = baseFont(false);
       desc.alignment = leftMiddle(true);
-      desc.border = THIN_BORDER;
 
       const unit = row.getCell(COL_UNIT);
       unit.value = item.unit ?? "";
       unit.font = baseFont(false);
       unit.alignment = centerMiddle();
-      unit.border = THIN_BORDER;
 
       const qty = row.getCell(COL_QTY);
       qty.value = item.qty ?? null;
       qty.font = baseFont(false);
       qty.alignment = centerMiddle();
-      qty.border = THIN_BORDER;
       qty.numFmt = "#,##0.00";
 
       const rate = row.getCell(COL_RATE);
       rate.value = item.rate ?? null;
       rate.font = baseFont(false);
       rate.alignment = centerMiddle();
-      rate.border = THIN_BORDER;
       rate.numFmt = "#,##0.00";
 
       const amount = row.getCell(COL_AMOUNT);
@@ -273,7 +265,6 @@ function writeBillItems(
       };
       amount.font = baseFont(false);
       amount.alignment = centerMiddle();
-      amount.border = THIN_BORDER;
       amount.numFmt = "#,##0.00";
 
       amountRows.push(r);

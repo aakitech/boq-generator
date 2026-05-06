@@ -652,27 +652,26 @@ export async function proposeBOQEditWithAI(
   usageCollector?: AssistantUsageCollector,
   conversationContext = "",
 ): Promise<AssistantResponse> {
-  // Try OpenAI first, fall back to Gemini
-  try {
-    return await runAssistantModelWithOpenAI(currentBoq, instruction, conversationContext, usageCollector);
-  } catch (openAIError) {
-    let lastGeminiError: unknown;
-    for (const modelName of [GEMINI_FALLBACK_MODEL, GEMINI_FAST_FALLBACK_MODEL]) {
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
-        try {
-          return await runAssistantModel(modelName, currentBoq, instruction, conversationContext, usageCollector);
-        } catch (err) {
-          lastGeminiError = err;
-          if (!isTransientGeminiError(err)) break;
-          if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-            await delay(Math.min(1000 * 2 ** (attempt - 1), 3000));
-          }
-        }
+  // OpenAI primary with retries
+  let lastOpenAIError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+    try {
+      return await runAssistantModelWithOpenAI(currentBoq, instruction, conversationContext, usageCollector);
+    } catch (err) {
+      lastOpenAIError = err;
+      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+        await delay(Math.min(1000 * 2 ** (attempt - 1), 3000));
       }
     }
-    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant failed";
-    const geminiMessage = lastGeminiError instanceof Error ? lastGeminiError.message : "Gemini fallback failed";
-    throw new Error(`OpenAI assistant failed: ${openAIMessage}. Gemini fallback failed: ${geminiMessage}`);
+  }
+
+  // Gemini emergency fallback — one attempt
+  try {
+    return await runAssistantModel(GEMINI_FALLBACK_MODEL, currentBoq, instruction, conversationContext, usageCollector);
+  } catch (geminiError) {
+    const openAIMessage = lastOpenAIError instanceof Error ? lastOpenAIError.message : "OpenAI assistant failed";
+    const geminiMessage = geminiError instanceof Error ? geminiError.message : "Gemini fallback failed";
+    throw new Error(`OpenAI assistant failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMessage}. Gemini fallback failed: ${geminiMessage}`);
   }
 }
 
@@ -682,42 +681,38 @@ export async function streamAssistantSummary(
   onToken: (token: string) => void,
   usageCollector?: AssistantUsageCollector,
 ): Promise<void> {
-  // Try OpenAI first, fall back to Gemini streaming
-  try {
-    await runAssistantSummaryWithOpenAI(currentBoq, instruction, onToken, usageCollector);
-    return;
-  } catch (openAIError) {
-    for (const modelName of [GEMINI_FALLBACK_MODEL, GEMINI_FAST_FALLBACK_MODEL]) {
-      try {
-        const model = getGenAI().getGenerativeModel({
-          model: modelName,
-          systemInstruction: STREAM_SUMMARY_PROMPT,
-          generationConfig: { temperature: 0.1 },
-        });
-
-        const stream = await model.generateContentStream(
-          [
-            "Current BOQ JSON:",
-            JSON.stringify(currentBoq),
-            "",
-            "User edit instruction:",
-            instruction,
-          ].join("\n")
-        );
-
-        for await (const chunk of stream.stream) {
-          const token = chunk.text();
-          if (token) onToken(token);
-        }
-
-        const finalResponse = await stream.response;
-        recordGeminiUsage(usageCollector, modelName, "assistant_summary", finalResponse.usageMetadata);
-        return;
-      } catch (geminiError) {
-        if (!isTransientGeminiError(geminiError)) break;
+  // OpenAI primary with retries
+  let lastOpenAIError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+    try {
+      await runAssistantSummaryWithOpenAI(currentBoq, instruction, onToken, usageCollector);
+      return;
+    } catch (err) {
+      lastOpenAIError = err;
+      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+        await delay(Math.min(1000 * 2 ** (attempt - 1), 3000));
       }
     }
-    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant failed";
-    throw new Error(`OpenAI summary failed: ${openAIMessage}. Gemini fallback also failed.`);
+  }
+
+  // Gemini emergency fallback — one attempt
+  try {
+    const model = getGenAI().getGenerativeModel({
+      model: GEMINI_FALLBACK_MODEL,
+      systemInstruction: STREAM_SUMMARY_PROMPT,
+      generationConfig: { temperature: 0.1 },
+    });
+    const stream = await model.generateContentStream(
+      ["Current BOQ JSON:", JSON.stringify(currentBoq), "", "User edit instruction:", instruction].join("\n")
+    );
+    for await (const chunk of stream.stream) {
+      const token = chunk.text();
+      if (token) onToken(token);
+    }
+    const finalResponse = await stream.response;
+    recordGeminiUsage(usageCollector, GEMINI_FALLBACK_MODEL, "assistant_summary", finalResponse.usageMetadata);
+  } catch (geminiError) {
+    const openAIMessage = lastOpenAIError instanceof Error ? lastOpenAIError.message : "OpenAI summary failed";
+    throw new Error(`OpenAI summary failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMessage}. Gemini fallback failed.`);
   }
 }

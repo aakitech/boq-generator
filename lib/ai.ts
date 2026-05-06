@@ -533,55 +533,47 @@ async function generateStructuredContent<T>({
   const openAIModel = useFastModel ? OPENAI_FAST_MODEL : OPENAI_PRIMARY_MODEL;
   const geminiModel = useFastModel ? GEMINI_FAST_FALLBACK_MODEL : GEMINI_FALLBACK_MODEL;
 
-  // Try OpenAI first
-  try {
-    return await generateStructuredContentWithOpenAI<T>({
-      prompt,
-      responseSchema,
-      systemInstruction,
-      temperature,
-      preferredModel: openAIModel,
-      usageCollector,
-      usageOperation,
-    });
-  } catch (openAIError) {
-    // Fall back to Gemini
+  // Try OpenAI first with retries — it's the primary and is reliable
+  let lastOpenAIError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
     try {
-      const generationConfig: Record<string, unknown> = {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema as any,
-        temperature,
-      };
-
-      const model = getGenAI().getGenerativeModel({
-        model: geminiModel,
+      return await generateStructuredContentWithOpenAI<T>({
+        prompt,
+        responseSchema,
         systemInstruction,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        generationConfig: generationConfig as any,
+        temperature,
+        preferredModel: openAIModel,
+        usageCollector,
+        usageOperation,
       });
-
-      let lastGeminiError: unknown;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
-        try {
-          const result = await model.generateContent(prompt);
-          recordGeminiUsage(usageCollector, geminiModel, usageOperation ?? "structured_content", result.response.usageMetadata);
-          return parseJsonResponse<T>(result.response.text());
-        } catch (geminiError) {
-          lastGeminiError = geminiError;
-          if (isRetryableModelError(geminiError) && attempt < MAX_ATTEMPTS_PER_MODEL) {
-            await sleep(computeRetryDelayMs(attempt, geminiError));
-            continue;
-          }
-          break;
-        }
+    } catch (err) {
+      lastOpenAIError = err;
+      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+        await sleep(computeRetryDelayMs(attempt, err));
       }
-
-      throw lastGeminiError;
-    } catch (geminiError) {
-      const openAIMsg = openAIError instanceof Error ? openAIError.message : String(openAIError);
-      const geminiMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
-      throw new Error(`OpenAI failed: ${openAIMsg}. Gemini fallback failed: ${geminiMsg}`);
     }
+  }
+
+  // Gemini is the emergency fallback — one attempt only
+  try {
+    const generationConfig: Record<string, unknown> = {
+      responseMimeType: "application/json",
+      responseSchema: responseSchema as any,
+      temperature,
+    };
+    const model = getGenAI().getGenerativeModel({
+      model: geminiModel,
+      systemInstruction,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      generationConfig: generationConfig as any,
+    });
+    const result = await model.generateContent(prompt);
+    recordGeminiUsage(usageCollector, geminiModel, usageOperation ?? "structured_content", result.response.usageMetadata);
+    return parseJsonResponse<T>(result.response.text());
+  } catch (geminiError) {
+    const openAIMsg = lastOpenAIError instanceof Error ? lastOpenAIError.message : String(lastOpenAIError);
+    const geminiMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+    throw new Error(`OpenAI failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMsg}. Gemini fallback failed: ${geminiMsg}`);
   }
 }
 
