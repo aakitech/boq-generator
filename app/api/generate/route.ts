@@ -87,15 +87,10 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { text, documents, suggest_rates, rate_context } = body as {
+    const { text, documents, rate_context } = body as {
       text?: string;
       documents?: GenerationInputDocument[];
-      suggest_rates?: boolean;
       rate_context?: import("@/lib/ai").RateContext;
-      is_sow?: boolean;
-      sow_warning?: string;
-      document_type?: string;
-      should_block_generation?: boolean;
     };
 
     const allDocuments: GenerationInputDocument[] =
@@ -117,11 +112,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Use first doc for SOW validation — it's typically the SoW in the flat model
+    // Validate across all docs — AI picks the strongest SOW signal from the bundle
     const validationText = allDocuments
-      .slice(0, 1)
-      .map((d) => d.text.slice(0, 5000))
-      .join("\n\n");
+      .map((d) => d.text.slice(0, 3000))
+      .join("\n\n---\n\n");
 
     const supportingDocsCount = allDocuments.length - 1;
     const usageCollector: GeminiUsageCollector = { entries: [] };
@@ -130,16 +124,11 @@ export async function POST(req: NextRequest) {
       supportingDocsCount,
       usageCollector,
     });
-    const clientSaysNotSOW = body.is_sow === false;
-    if (!validation.isSOW || validation.should_block_generation || clientSaysNotSOW || body.should_block_generation) {
-      const reason =
-        validation.reason ||
-        body.sow_warning ||
-        "This document does not appear to be a construction Scope of Work suitable for BOQ generation.";
+    if (!validation.isSOW || validation.should_block_generation) {
       return NextResponse.json(
         {
-          error: reason,
-          document_type: validation.documentType || body.document_type || "unknown",
+          error: validation.reason || "These documents don't contain a construction Scope of Work suitable for BOQ generation.",
+          document_type: validation.documentType || "unknown",
         },
         { status: 422 }
       );
