@@ -137,6 +137,7 @@ async function readApiResponse<T>(res: Response): Promise<T> {
 function GenerateBOQTab() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const additionalSupportingInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<number | null>(null);
@@ -176,6 +177,7 @@ function GenerateBOQTab() {
   const { remainingCredits, refreshCredits, setRemainingCredits } = useCredits();
   const attachedSupportingCount = supportingUploads.filter((upload) => upload.file).length;
   const processedSupportingCount = supportingUploads.filter((upload) => upload.processedDoc).length;
+  const hasSupportingUploadInProgress = supportingUploads.some((upload) => upload.processing);
   const hasAllRequiredAttachments =
     classification?.requiredAttachments.length
       ? classification.requiredAttachments.every((_, index) => Boolean(supportingUploads[index]?.file))
@@ -196,6 +198,9 @@ function GenerateBOQTab() {
       return PAYMENT_MODE !== "stripe" ? "Opening WhatsApp..." : "Opening secure checkout...";
     }
     if (stage === "generating") return "Generating your BOQ...";
+    if (hasSupportingUploadInProgress) {
+      return "Processing supporting document...";
+    }
     if (classification?.shouldBlockGeneration && hasAllRequiredAttachments && !hasProcessedAllRequiredAttachments) {
       return "Processing attachments...";
     }
@@ -205,7 +210,7 @@ function GenerateBOQTab() {
         : "Add required attachments to continue";
     }
     return "Generate BOQ →";
-  }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, remainingCredits, stage]);
+  }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, hasSupportingUploadInProgress, remainingCredits, stage]);
 
   const hasOptionalSupportingDocs = Boolean(
     classification && !classification.shouldBlockGeneration && classification.requiredAttachments.length > 0
@@ -300,6 +305,27 @@ function GenerateBOQTab() {
           : { requirement, file: null, processedDoc: null, processing: false, error: null };
       })
     );
+  }
+
+  function appendOptionalSupportingUpload(picked: File) {
+    const newIndex = supportingUploads.length;
+    setSupportingUploads((current) => [
+      ...current,
+      {
+        requirement: {
+          type: "spec",
+          reason: "Optional supporting document",
+          required: false,
+        },
+        file: picked,
+        processedDoc: null,
+        processing: true,
+        error: null,
+      },
+    ]);
+    window.setTimeout(() => {
+      void handleSupportingFileSelection(newIndex, picked);
+    }, 0);
   }
 
   const derivedBundle = useMemo(() => {
@@ -463,17 +489,22 @@ function GenerateBOQTab() {
           error: null,
         }))
       );
+      const normalizedRequiredAttachments = requiredAttachments || [];
+      const supportingSlots = shouldBlockGeneration
+        ? normalizedRequiredAttachments
+        : normalizedRequiredAttachments.slice(0, 1);
+
       setClassification({
         documentType: documentType || null,
         confidence: typeof sowConfidence === "number" ? sowConfidence : null,
         shouldBlockGeneration: Boolean(shouldBlockGeneration),
-        requiredAttachments: requiredAttachments || [],
+        requiredAttachments: normalizedRequiredAttachments,
         sourceBundleStatus: sourceBundleStatus || "complete",
         positiveSignals: positiveSignals || [],
         negativeSignals: negativeSignals || [],
         flags: sowFlags || [],
       });
-      syncSupportingUploads(requiredAttachments || []);
+      syncSupportingUploads(supportingSlots);
       ph.capture("document_uploaded", {
         file_type: file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "docx",
         pages: p, is_sow: isSOWResult,
@@ -493,6 +524,10 @@ function GenerateBOQTab() {
 
   async function handleGenerate() {
     if (!file) return;
+    if (hasSupportingUploadInProgress) {
+      setError("Please wait for the supporting document to finish processing.");
+      return;
+    }
     if (needsAttachmentRecheck) {
       await handleExtract();
       return;
@@ -703,10 +738,8 @@ function GenerateBOQTab() {
                 <p className="text-[11px] uppercase tracking-wide text-gray-300">
                   {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
                 </p>
-                {(classification.shouldBlockGeneration
-                  ? classification.requiredAttachments
-                  : classification.requiredAttachments.slice(0, 1)
-                ).map((attachment, index) => {
+                {(classification.shouldBlockGeneration ? supportingUploads.slice(0, classification.requiredAttachments.length) : supportingUploads).map((upload, index) => {
+                  const attachment = upload.requirement;
                   const current = supportingUploads[index];
                   return (
                     <div key={`${attachment.type}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
@@ -757,6 +790,28 @@ function GenerateBOQTab() {
                     </div>
                   );
                 })}
+                {!classification.shouldBlockGeneration && (
+                  <>
+                    <input
+                      ref={additionalSupportingInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.xlsx,.xls"
+                      className="hidden"
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0] ?? null;
+                        e.currentTarget.value = "";
+                        if (picked) appendOptionalSupportingUpload(picked);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => additionalSupportingInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-md border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-xs text-white"
+                    >
+                      Add another document
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -910,6 +965,7 @@ function GenerateBOQTab() {
           disabled={
             stage === "paying" ||
             stage === "generating" ||
+            hasSupportingUploadInProgress ||
             isSOW === false ||
             (classification?.shouldBlockGeneration && hasAllRequiredAttachments && !hasProcessedAllRequiredAttachments) ||
             Boolean(classification?.shouldBlockGeneration && !needsAttachmentRecheck)
