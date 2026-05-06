@@ -1,13 +1,3 @@
-/**
- * excel-template.ts
- *
- * Generates a BOQ Excel workbook using ExcelJS, styled to match Innocent's
- * accepted BOQ format (Century Gothic font, thin borders, Zambian layout).
- *
- * This replaces the SheetJS-based generateBOQExcel() for the SOW generate path,
- * ensuring visual parity with the rate-patching path (which also uses ExcelJS).
- */
-
 import ExcelJS from "exceljs";
 import type { BOQDocument } from "@/lib/types";
 
@@ -26,12 +16,7 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
 const HEADER_FILL: ExcelJS.Fill = {
   type: "pattern",
   pattern: "solid",
-  fgColor: { argb: "FFD9D9D9" }, // light grey, matches Innocent's header rows
-};
-
-const NO_FILL: ExcelJS.Fill = {
-  type: "pattern",
-  pattern: "none",
+  fgColor: { argb: "FFD9D9D9" },
 };
 
 const BILL_HEADER_FILL: ExcelJS.Fill = {
@@ -40,35 +25,49 @@ const BILL_HEADER_FILL: ExcelJS.Fill = {
   fgColor: { argb: "FFBFBFBF" },
 };
 
-function baseFont(bold = false, size = FONT_SIZE): Partial<ExcelJS.Font> {
-  return { name: FONT_NAME, size, bold };
+function baseFont(bold = false, size = FONT_SIZE, italic = false): Partial<ExcelJS.Font> {
+  return { name: FONT_NAME, size, bold, italic };
 }
 
-function centerMiddle(wrapText = false): Partial<ExcelJS.Alignment> {
-  return { horizontal: "center", vertical: "middle", wrapText };
+function center(wrapText = false): Partial<ExcelJS.Alignment> {
+  return { horizontal: "center", vertical: "top", wrapText };
 }
 
-function leftMiddle(wrapText = false): Partial<ExcelJS.Alignment> {
-  return { horizontal: "left", vertical: "middle", wrapText };
+function left(wrapText = false): Partial<ExcelJS.Alignment> {
+  return { horizontal: "left", vertical: "top", wrapText };
 }
 
 // ─── Column layout ─────────────────────────────────────────────────────────────
 // ITEM | DESCRIPTION | UNIT | QTY | RATE | AMOUNT
-// col:   1              2      3     4     5       6
+//   1        2           3     4     5       6
 
-const COL_ITEM = 1;
-const COL_DESC = 2;
-const COL_UNIT = 3;
-const COL_QTY = 4;
-const COL_RATE = 5;
+const COL_ITEM   = 1;
+const COL_DESC   = 2;
+const COL_UNIT   = 3;
+const COL_QTY    = 4;
+const COL_RATE   = 5;
 const COL_AMOUNT = 6;
 
-const COLUMN_WIDTHS = [8.5, 56, 9.5, 12, 15, 19];
+// Widths tuned to match Innocent's column proportions
+const COLUMN_WIDTHS = [8, 58, 9, 11, 14, 18];
+
+// ─── Row height estimation ─────────────────────────────────────────────────────
+// ExcelJS doesn't auto-size row heights for wrapped text.
+// Estimate based on description character count at column width ~58 chars.
+
+const DESC_COL_CHARS = 58;
+const LINE_HEIGHT_PT  = 15; // points per line at 11pt Century Gothic
+const ROW_PADDING_PT  = 6;
+
+function estimateRowHeight(text: string): number {
+  if (!text) return LINE_HEIGHT_PT + ROW_PADDING_PT;
+  const lines = Math.ceil(text.length / DESC_COL_CHARS);
+  return Math.max(lines * LINE_HEIGHT_PT + ROW_PADDING_PT, LINE_HEIGHT_PT + ROW_PADDING_PT);
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function alphaItem(index: number): string {
-  // 0 → A, 25 → Z, 26 → AA …
   let result = "";
   let i = index;
   do {
@@ -78,75 +77,64 @@ function alphaItem(index: number): string {
   return result;
 }
 
-function mergeRow(
-  sheet: ExcelJS.Worksheet,
-  rowNum: number,
-  startCol: number,
-  endCol: number
-) {
+function mergeRow(sheet: ExcelJS.Worksheet, rowNum: number, startCol: number, endCol: number) {
   sheet.mergeCells(rowNum, startCol, rowNum, endCol);
 }
 
 function setColumnWidths(sheet: ExcelJS.Worksheet) {
-  COLUMN_WIDTHS.forEach((w, i) => {
-    sheet.getColumn(i + 1).width = w;
-  });
+  COLUMN_WIDTHS.forEach((w, i) => { sheet.getColumn(i + 1).width = w; });
 }
 
-function writeHeaderBlock(
-  sheet: ExcelJS.Worksheet,
-  boq: BOQDocument
-): number {
+function blankRow(sheet: ExcelJS.Worksheet, r: number): number {
+  sheet.getRow(r).height = 14;
+  return r + 1;
+}
+
+// ─── Document header ───────────────────────────────────────────────────────────
+
+function writeHeaderBlock(sheet: ExcelJS.Worksheet, boq: BOQDocument): number {
   let r = 1;
 
-  // Row 1 — blank
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
 
-  // Row 2 — "BILL OF QUANTITIES"
-  const titleRow = sheet.getRow(r);
-  mergeRow(sheet, r, COL_DESC, COL_AMOUNT);
-  const titleCell = titleRow.getCell(COL_DESC);
+  // "BILL OF QUANTITIES"
+  mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
+  const titleCell = sheet.getRow(r).getCell(COL_ITEM);
   titleCell.value = "BILL OF QUANTITIES";
-  titleCell.font = baseFont(true, 16);
+  titleCell.font = baseFont(true, 14);
   titleCell.fill = HEADER_FILL;
-  titleCell.alignment = centerMiddle();
-  titleRow.height = 28;
+  titleCell.alignment = center();
+  sheet.getRow(r).height = 26;
   r++;
 
-  // Row 3 — "FOR"
-  const forRow = sheet.getRow(r);
-  mergeRow(sheet, r, COL_DESC, COL_AMOUNT);
-  const forCell = forRow.getCell(COL_DESC);
+  // "FOR"
+  mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
+  const forCell = sheet.getRow(r).getCell(COL_ITEM);
   forCell.value = "FOR";
-  forCell.font = baseFont(true, 12);
+  forCell.font = baseFont(true, 11);
   forCell.fill = HEADER_FILL;
-  forCell.alignment = centerMiddle();
-  forRow.height = 18;
+  forCell.alignment = center();
+  sheet.getRow(r).height = 18;
   r++;
 
-  // Row 4 — project name
-  const projRow = sheet.getRow(r);
-  mergeRow(sheet, r, COL_DESC, COL_AMOUNT);
-  const projCell = projRow.getCell(COL_DESC);
+  // Project name
+  mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
+  const projCell = sheet.getRow(r).getCell(COL_ITEM);
   projCell.value = boq.project.toUpperCase();
-  projCell.font = baseFont(true, 13);
+  projCell.font = baseFont(true, 12);
   projCell.fill = HEADER_FILL;
-  projCell.alignment = centerMiddle(true);
-  projRow.height = 24;
+  projCell.alignment = center(true);
+  sheet.getRow(r).height = 22;
   r++;
 
-  // Row 5 — blank
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
 
   return r;
 }
 
-function writeColumnHeaders(
-  sheet: ExcelJS.Worksheet,
-  rowNum: number
-): void {
+// ─── Column headers ────────────────────────────────────────────────────────────
+
+function writeColumnHeaders(sheet: ExcelJS.Worksheet, rowNum: number): void {
   const headers = ["ITEM", "DESCRIPTION", "UNIT", "QTY", "RATE", "AMOUNT"];
   const row = sheet.getRow(rowNum);
   headers.forEach((h, i) => {
@@ -154,203 +142,208 @@ function writeColumnHeaders(
     cell.value = h;
     cell.font = baseFont(true);
     cell.fill = HEADER_FILL;
-    cell.alignment = centerMiddle();
+    cell.alignment = i === 1 ? left() : center();
     cell.border = THIN_BORDER;
   });
-  row.height = 22;
+  row.height = 20;
 }
+
+// ─── Bill title block ──────────────────────────────────────────────────────────
 
 function writeBillTitle(
   sheet: ExcelJS.Worksheet,
   rowNum: number,
-  billNum: number,
-  billTitle: string
+  boq: BOQDocument,
+  billNum: string | number,
+  billTitle: string,
 ): number {
   let r = rowNum;
 
   // "BILL No. X"
-  const numRow = sheet.getRow(r);
   mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
-  const numCell = numRow.getCell(COL_ITEM);
+  const numCell = sheet.getRow(r).getCell(COL_ITEM);
   numCell.value = `BILL No. ${billNum}`;
   numCell.font = baseFont(true, 12);
   numCell.fill = BILL_HEADER_FILL;
-  numCell.alignment = leftMiddle();
-  numRow.height = 20;
+  numCell.alignment = center();
+  sheet.getRow(r).height = 20;
+  r++;
+
+  // Project name repeated (Innocent's format includes this per bill)
+  mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
+  const projCell = sheet.getRow(r).getCell(COL_ITEM);
+  projCell.value = boq.project.toUpperCase();
+  projCell.font = baseFont(false, 11);
+  projCell.fill = BILL_HEADER_FILL;
+  projCell.alignment = center();
+  sheet.getRow(r).height = 18;
   r++;
 
   // Bill title
-  const titleRow = sheet.getRow(r);
   mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
-  const titleCell = titleRow.getCell(COL_ITEM);
+  const titleCell = sheet.getRow(r).getCell(COL_ITEM);
   titleCell.value = billTitle.toUpperCase();
-  titleCell.font = baseFont(true, 12);
+  titleCell.font = baseFont(true, 11);
   titleCell.fill = BILL_HEADER_FILL;
-  titleCell.alignment = leftMiddle(true);
-  titleRow.height = 20;
+  titleCell.alignment = center();
+  sheet.getRow(r).height = 20;
   r++;
 
-  // Blank row
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
 
-  // Column headers repeated per bill
+  // Column headers
   writeColumnHeaders(sheet, r);
   r++;
 
-  // Blank row
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
 
   return r;
 }
+
+// ─── Bill items ────────────────────────────────────────────────────────────────
 
 function writeBillItems(
   sheet: ExcelJS.Worksheet,
   startRow: number,
   bill: BOQDocument["bills"][0],
-  // track row numbers for the amount formula range
-  amountRows: number[]
+  amountRows: number[],
 ): number {
   let r = startRow;
   let itemIndex = 0;
 
   for (const item of bill.items) {
     if (item.is_header) {
-      // Section heading — spans description through amount, no border
-      const row = sheet.getRow(r);
+      // Section heading — description column only, bold, no fill
+      // Innocent uses italic for sub-section headings (Preambles, trade sections)
       mergeRow(sheet, r, COL_DESC, COL_AMOUNT);
-      const cell = row.getCell(COL_DESC);
+      const cell = sheet.getRow(r).getCell(COL_DESC);
       cell.value = item.description;
-      cell.font = baseFont(true);
-      cell.fill = NO_FILL;
-      cell.alignment = leftMiddle();
-      row.height = 18;
+      cell.font = baseFont(true, FONT_SIZE, false);
+      cell.alignment = left(true);
+      sheet.getRow(r).height = estimateRowHeight(item.description);
     } else {
-      // Measurable item row — no borders, clean open look
+      // Measurable item row
       const row = sheet.getRow(r);
 
+      // Item letter — left-aligned (matches Innocent's style)
       const itemRef = row.getCell(COL_ITEM);
       itemRef.value = alphaItem(itemIndex);
       itemRef.font = baseFont(false);
-      itemRef.alignment = centerMiddle();
+      itemRef.alignment = left();
 
       const desc = row.getCell(COL_DESC);
       desc.value = item.description;
       desc.font = baseFont(false);
-      desc.alignment = leftMiddle(true);
+      desc.alignment = left(true);
 
       const unit = row.getCell(COL_UNIT);
       unit.value = item.unit ?? "";
       unit.font = baseFont(false);
-      unit.alignment = centerMiddle();
+      unit.alignment = center();
 
       const qty = row.getCell(COL_QTY);
       qty.value = item.qty ?? null;
       qty.font = baseFont(false);
-      qty.alignment = centerMiddle();
+      qty.alignment = center();
       qty.numFmt = "#,##0.00";
 
       const rate = row.getCell(COL_RATE);
       rate.value = item.rate ?? null;
       rate.font = baseFont(false);
-      rate.alignment = centerMiddle();
+      rate.alignment = center();
       rate.numFmt = "#,##0.00";
 
       const amount = row.getCell(COL_AMOUNT);
-      // Formula: qty * rate (D=col4, E=col5)
       amount.value = {
         formula: `${String.fromCharCode(64 + COL_QTY)}${r}*${String.fromCharCode(64 + COL_RATE)}${r}`,
         result: item.qty != null && item.rate != null ? item.qty * item.rate : undefined,
       };
       amount.font = baseFont(false);
-      amount.alignment = centerMiddle();
+      amount.alignment = center();
       amount.numFmt = "#,##0.00";
 
       amountRows.push(r);
       itemIndex++;
-      row.height = 18;
+
+      // Row height based on description length so text never clips
+      row.height = estimateRowHeight(item.description);
     }
 
     r++;
-    // Blank row after each item
-    sheet.getRow(r).height = 8;
-    r++;
+    // Full-height spacer between items (matches Innocent's generous spacing)
+    r = blankRow(sheet, r);
   }
 
   return r;
 }
 
+// ─── Bill total ────────────────────────────────────────────────────────────────
+
 function writeBillTotal(
   sheet: ExcelJS.Worksheet,
   rowNum: number,
   billTitle: string,
-  amountRows: number[]
+  amountRows: number[],
 ): number {
   let r = rowNum;
-
   const row = sheet.getRow(r);
+
   mergeRow(sheet, r, COL_DESC, COL_UNIT);
   const labelCell = row.getCell(COL_DESC);
-  labelCell.value = `${billTitle.toUpperCase()} — TOTAL`;
+  labelCell.value = `${billTitle.toUpperCase()} - TOTAL TO SUMMARY`;
   labelCell.font = baseFont(true);
   labelCell.fill = HEADER_FILL;
-  labelCell.alignment = leftMiddle();
+  labelCell.alignment = left();
   labelCell.border = THIN_BORDER;
 
   const currencyCell = row.getCell(COL_RATE);
   currencyCell.value = "ZMW";
   currencyCell.font = baseFont(true);
   currencyCell.fill = HEADER_FILL;
-  currencyCell.alignment = centerMiddle();
+  currencyCell.alignment = center();
   currencyCell.border = THIN_BORDER;
 
   const totalCell = row.getCell(COL_AMOUNT);
-  if (amountRows.length > 0) {
-    const refs = amountRows
-      .map((rn) => `F${rn}`)
-      .join(",");
-    totalCell.value = { formula: `SUM(${refs})`, result: undefined };
-  } else {
-    totalCell.value = 0;
-  }
+  totalCell.value = amountRows.length > 0
+    ? { formula: `SUM(${amountRows.map((rn) => `F${rn}`).join(",")})`, result: undefined }
+    : 0;
   totalCell.font = baseFont(true);
   totalCell.fill = HEADER_FILL;
-  totalCell.alignment = centerMiddle();
+  totalCell.alignment = center();
   totalCell.border = THIN_BORDER;
   totalCell.numFmt = "#,##0.00";
 
   row.height = 20;
   r++;
 
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
+  r = blankRow(sheet, r);
 
   return r;
 }
+
+// ─── Grand summary ─────────────────────────────────────────────────────────────
 
 function writeGrandSummary(
   sheet: ExcelJS.Worksheet,
   rowNum: number,
   bills: BOQDocument["bills"],
-  billTotalRows: number[]
+  billTotalRows: number[],
 ): void {
   let r = rowNum;
 
   // Title
-  const titleRow = sheet.getRow(r);
   mergeRow(sheet, r, COL_ITEM, COL_AMOUNT);
-  const titleCell = titleRow.getCell(COL_ITEM);
+  const titleCell = sheet.getRow(r).getCell(COL_ITEM);
   titleCell.value = "SUMMARY OF BILLS";
-  titleCell.font = baseFont(true, 13);
+  titleCell.font = baseFont(true, 12);
   titleCell.fill = BILL_HEADER_FILL;
-  titleCell.alignment = centerMiddle();
+  titleCell.alignment = center();
   titleCell.border = THIN_BORDER;
-  titleRow.height = 22;
+  sheet.getRow(r).height = 22;
   r++;
 
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
 
   const summaryTotalRefs: string[] = [];
 
@@ -360,20 +353,20 @@ function writeGrandSummary(
     const numCell = row.getCell(COL_ITEM);
     numCell.value = `Bill ${bill.number}`;
     numCell.font = baseFont(false);
-    numCell.alignment = centerMiddle();
+    numCell.alignment = left();
     numCell.border = THIN_BORDER;
 
     mergeRow(sheet, r, COL_DESC, COL_UNIT);
     const descCell = row.getCell(COL_DESC);
     descCell.value = bill.title;
     descCell.font = baseFont(false);
-    descCell.alignment = leftMiddle(true);
+    descCell.alignment = left(true);
     descCell.border = THIN_BORDER;
 
     const currCell = row.getCell(COL_RATE);
     currCell.value = "ZMW";
     currCell.font = baseFont(false);
-    currCell.alignment = centerMiddle();
+    currCell.alignment = center();
     currCell.border = THIN_BORDER;
 
     const totalCell = row.getCell(COL_AMOUNT);
@@ -385,18 +378,16 @@ function writeGrandSummary(
       totalCell.value = 0;
     }
     totalCell.font = baseFont(false);
-    totalCell.alignment = centerMiddle();
+    totalCell.alignment = center();
     totalCell.border = THIN_BORDER;
     totalCell.numFmt = "#,##0.00";
 
     row.height = 18;
     r++;
-    sheet.getRow(r).height = 4;
-    r++;
+    r = blankRow(sheet, r);
   });
 
-  sheet.getRow(r).height = 8;
-  r++;
+  r = blankRow(sheet, r);
 
   // Grand total row
   const gtRow = sheet.getRow(r);
@@ -405,25 +396,23 @@ function writeGrandSummary(
   gtLabel.value = "GRAND TOTAL (excl. VAT)";
   gtLabel.font = baseFont(true, 12);
   gtLabel.fill = BILL_HEADER_FILL;
-  gtLabel.alignment = leftMiddle();
+  gtLabel.alignment = left();
   gtLabel.border = THIN_BORDER;
 
   const gtCurr = gtRow.getCell(COL_RATE);
   gtCurr.value = "ZMW";
   gtCurr.font = baseFont(true);
   gtCurr.fill = BILL_HEADER_FILL;
-  gtCurr.alignment = centerMiddle();
+  gtCurr.alignment = center();
   gtCurr.border = THIN_BORDER;
 
   const gtTotal = gtRow.getCell(COL_AMOUNT);
-  if (summaryTotalRefs.length > 0) {
-    gtTotal.value = { formula: `SUM(${summaryTotalRefs.join(",")})`, result: undefined };
-  } else {
-    gtTotal.value = 0;
-  }
+  gtTotal.value = summaryTotalRefs.length > 0
+    ? { formula: `SUM(${summaryTotalRefs.join(",")})`, result: undefined }
+    : 0;
   gtTotal.font = baseFont(true, 12);
   gtTotal.fill = BILL_HEADER_FILL;
-  gtTotal.alignment = centerMiddle();
+  gtTotal.alignment = center();
   gtTotal.border = THIN_BORDER;
   gtTotal.numFmt = "#,##0.00";
   gtRow.height = 24;
@@ -431,9 +420,7 @@ function writeGrandSummary(
 
 // ─── Main export ───────────────────────────────────────────────────────────────
 
-export async function generateBOQExcelFromTemplate(
-  boq: BOQDocument
-): Promise<Buffer> {
+export async function generateBOQExcelFromTemplate(boq: BOQDocument): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "BOQ Generator";
   workbook.created = new Date();
@@ -446,9 +433,7 @@ export async function generateBOQExcelFromTemplate(
       fitToWidth: 1,
       fitToHeight: 0,
     },
-    properties: {
-      defaultRowHeight: 15,
-    },
+    properties: { defaultRowHeight: 15 },
   });
 
   setColumnWidths(sheet);
@@ -458,7 +443,7 @@ export async function generateBOQExcelFromTemplate(
   const billTotalRows: number[] = [];
 
   for (const bill of boq.bills) {
-    r = writeBillTitle(sheet, r, bill.number, bill.title);
+    r = writeBillTitle(sheet, r, boq, bill.number, bill.title);
 
     const amountRows: number[] = [];
     r = writeBillItems(sheet, r, bill, amountRows);
@@ -468,7 +453,6 @@ export async function generateBOQExcelFromTemplate(
     billTotalRows.push(billTotalRow);
   }
 
-  // Grand summary
   sheet.getRow(r).height = 8;
   r++;
   writeGrandSummary(sheet, r, boq.bills, billTotalRows);
