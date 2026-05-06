@@ -79,28 +79,12 @@ type QuantityPassResponse = {
   }>;
 };
 
-const SHARED_PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY || "gemini-2.5-pro";
-const SHARED_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-flash";
-const SOW_PRIMARY_MODEL =
-  process.env.GEMINI_SOW_MODEL_PRIMARY || SHARED_PRIMARY_MODEL || "gemini-2.5-pro";
-const SOW_FALLBACK_MODEL =
-  process.env.GEMINI_SOW_MODEL_FALLBACK || SHARED_FALLBACK_MODEL || "gemini-2.5-flash";
-const RATE_PRIMARY_MODEL =
-  process.env.GEMINI_RATE_MODEL_PRIMARY || SHARED_FALLBACK_MODEL || "gemini-2.5-flash";
-const RATE_FALLBACK_MODEL =
-  process.env.GEMINI_RATE_MODEL_FALLBACK || SHARED_PRIMARY_MODEL || "gemini-2.5-pro";
-const OPENAI_FALLBACK_MODEL = process.env.OPENAI_MODEL_FALLBACK || "gpt-5.4-mini";
+const OPENAI_PRIMARY_MODEL = process.env.OPENAI_MODEL_PRIMARY || "gpt-4.1";
+const OPENAI_FAST_MODEL = process.env.OPENAI_MODEL_FAST || "gpt-4.1-mini";
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-pro";
+const GEMINI_FAST_FALLBACK_MODEL = process.env.GEMINI_MODEL_FAST_FALLBACK || "gemini-2.5-flash";
 const MAX_ATTEMPTS_PER_MODEL = 3;
 const RATE_FILL_BATCH_SIZE = 24;
-const DEFAULT_MODEL_CANDIDATES = Array.from(
-  new Set([SHARED_PRIMARY_MODEL, SHARED_FALLBACK_MODEL, "gemini-2.5-flash"].filter(Boolean))
-);
-const SOW_MODEL_CANDIDATES = Array.from(
-  new Set([SOW_PRIMARY_MODEL, SOW_FALLBACK_MODEL, "gemini-2.5-flash"].filter(Boolean))
-);
-const RATE_MODEL_CANDIDATES = Array.from(
-  new Set([RATE_PRIMARY_MODEL, RATE_FALLBACK_MODEL, "gemini-2.5-flash"].filter(Boolean))
-);
 const HIGH_DEMAND_RETRY_BASE_MS = 1500;
 const RETRYABLE_RETRY_BASE_MS = 1000;
 const OPENAI_STRUCTURED_OUTPUT_NAME = "structured_response";
@@ -476,7 +460,7 @@ async function generateStructuredContentWithOpenAI<T>({
   usageOperation?: string;
 }): Promise<T> {
   const apiKey = ensureOpenAIConfigured();
-  const model = preferredModel || OPENAI_FALLBACK_MODEL;
+  const model = preferredModel || OPENAI_PRIMARY_MODEL;
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -533,105 +517,72 @@ async function generateStructuredContent<T>({
   responseSchema,
   systemInstruction,
   temperature,
-  preferredModel,
-  modelCandidates,
-  thinkingBudget = -1,
+  useFastModel = false,
   usageCollector,
   usageOperation,
-  failoverOnHighDemand = false,
 }: {
   prompt: string;
   responseSchema: object;
   systemInstruction?: string;
   temperature: number;
-  preferredModel?: string;
-  modelCandidates?: string[];
-  /** Gemini thinking token budget. -1 = dynamic (default). 0 = disabled. */
-  thinkingBudget?: number;
+  /** Use the faster/cheaper model tier (gpt-4.1-mini → gemini-2.5-flash fallback) */
+  useFastModel?: boolean;
   usageCollector?: GeminiUsageCollector;
   usageOperation?: string;
-  failoverOnHighDemand?: boolean;
 }): Promise<T> {
-  const candidates = Array.from(
-    new Set([preferredModel, ...(modelCandidates ?? DEFAULT_MODEL_CANDIDATES)].filter(Boolean))
-  ) as string[];
+  const openAIModel = useFastModel ? OPENAI_FAST_MODEL : OPENAI_PRIMARY_MODEL;
+  const geminiModel = useFastModel ? GEMINI_FAST_FALLBACK_MODEL : GEMINI_FALLBACK_MODEL;
 
-  let lastError: unknown;
-  let shouldTryOpenAI = false;
-  for (const modelName of candidates) {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
-      try {
-        // Some Gemini models reject an explicit zero-budget thinking config.
-        // Omit thinkingConfig entirely in that case and let the model default.
-        const generationConfig: Record<string, unknown> = {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema as any,
-          temperature,
-        };
-        if (thinkingBudget !== 0) {
-          generationConfig.thinkingConfig = { thinkingBudget };
-        }
-
-        const model = getGenAI().getGenerativeModel({
-          model: modelName,
-          systemInstruction,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          generationConfig: generationConfig as any,
-        });
-        const result = await model.generateContent(prompt);
-        recordGeminiUsage(usageCollector, modelName, usageOperation ?? "structured_content", result.response.usageMetadata);
-        return parseJsonResponse<T>(result.response.text());
-      } catch (error) {
-        lastError = error;
-
-        if (isUnavailableModelError(error)) {
-          shouldTryOpenAI = true;
-          break;
-        }
-
-        if (isRetryableModelError(error)) {
-          if (isHighDemandModelError(error) && failoverOnHighDemand && candidates.length > 1) {
-            shouldTryOpenAI = true;
-            break;
-          }
-          if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-            await sleep(computeRetryDelayMs(attempt, error));
-            continue;
-          }
-          shouldTryOpenAI = true;
-          break;
-        }
-
-        if (isMalformedJsonError(error)) {
-          if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-            await sleep(750 * attempt);
-            continue;
-          }
-          break;
-        }
-
-        throw error;
-      }
-    }
-  }
-
-  if (shouldTryOpenAI) {
+  // Try OpenAI first
+  try {
+    return await generateStructuredContentWithOpenAI<T>({
+      prompt,
+      responseSchema,
+      systemInstruction,
+      temperature,
+      preferredModel: openAIModel,
+      usageCollector,
+      usageOperation,
+    });
+  } catch (openAIError) {
+    // Fall back to Gemini
     try {
-      return await generateStructuredContentWithOpenAI<T>({
-        prompt,
-        responseSchema,
-        systemInstruction,
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema as any,
         temperature,
-        preferredModel: OPENAI_FALLBACK_MODEL,
-        usageCollector,
-        usageOperation,
+      };
+
+      const model = getGenAI().getGenerativeModel({
+        model: geminiModel,
+        systemInstruction,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        generationConfig: generationConfig as any,
       });
-    } catch (openAIError) {
-      lastError = openAIError;
+
+      let lastGeminiError: unknown;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+        try {
+          const result = await model.generateContent(prompt);
+          recordGeminiUsage(usageCollector, geminiModel, usageOperation ?? "structured_content", result.response.usageMetadata);
+          return parseJsonResponse<T>(result.response.text());
+        } catch (geminiError) {
+          lastGeminiError = geminiError;
+          if (isRetryableModelError(geminiError) && attempt < MAX_ATTEMPTS_PER_MODEL) {
+            await sleep(computeRetryDelayMs(attempt, geminiError));
+            continue;
+          }
+          break;
+        }
+      }
+
+      throw lastGeminiError;
+    } catch (geminiError) {
+      const openAIMsg = openAIError instanceof Error ? openAIError.message : String(openAIError);
+      const geminiMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+      throw new Error(`OpenAI failed: ${openAIMsg}. Gemini fallback failed: ${geminiMsg}`);
     }
   }
-
-  throw lastError instanceof Error ? lastError : new Error("No Gemini model was available.");
 }
 
 function detectRequiredAttachments(text: string): RequiredAttachment[] {
@@ -1116,8 +1067,6 @@ async function callModel<T>({
   usageOperation?: string;
 }): Promise<T> {
   return generateStructuredContent<T>({
-    preferredModel: SOW_PRIMARY_MODEL,
-    modelCandidates: SOW_MODEL_CANDIDATES,
     prompt,
     responseSchema,
     systemInstruction,
@@ -1411,8 +1360,7 @@ export async function validateSOW(
 
   try {
     const llm = await generateStructuredContent<SOWValidationResult>({
-      preferredModel: SOW_FALLBACK_MODEL,
-      modelCandidates: SOW_MODEL_CANDIDATES,
+      useFastModel: true,
       responseSchema: SOW_VALIDATION_SCHEMA,
       temperature: 0,
       usageCollector: opts?.usageCollector,
@@ -1574,8 +1522,7 @@ export async function scoreBOQ(boq: import("./types").BOQDocument): Promise<{
         boq_semantics: number;
       };
     }>({
-      preferredModel: SOW_FALLBACK_MODEL,
-      modelCandidates: SOW_MODEL_CANDIDATES,
+      useFastModel: true,
       responseSchema: QA_SCHEMA,
       temperature: 0,
       prompt: `You are a senior ASAQS-registered quantity surveyor performing a quality review of a generated Bill of Quantities for a Zambian construction project.
@@ -1869,12 +1816,9 @@ type BOQValidationResult = {
 export async function validateBOQ(csvText: string): Promise<BOQValidationResult> {
   const preview = csvText.slice(0, 8000);
   return generateStructuredContent<BOQValidationResult>({
-    preferredModel: RATE_FALLBACK_MODEL,
-    modelCandidates: RATE_MODEL_CANDIDATES,
+    useFastModel: true,
     responseSchema: BOQ_VALIDATION_SCHEMA,
     temperature: 0,
-    thinkingBudget: 0,
-    failoverOnHighDemand: true,
     usageOperation: "rate_boq_validation",
     prompt: `Analyse the following spreadsheet data (CSV/table format) and determine whether it is a genuine Bill of Quantities (BOQ).
 
@@ -2213,12 +2157,8 @@ async function fillRatesPass(
         confidence?: number | null;
       }>
     }>({
-      preferredModel: RATE_PRIMARY_MODEL,
-      modelCandidates: RATE_MODEL_CANDIDATES,
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
-      thinkingBudget: 0,
-      failoverOnHighDemand: true,
       usageCollector: options?.usageCollector,
       usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}

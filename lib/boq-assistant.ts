@@ -3,9 +3,10 @@ import type { BOQDocument } from "./types";
 import { computeAICostUsd, type AIUsageEntry } from "./gemini-pricing";
 import { getServerEnv } from "./server-env";
 
-const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY || "gemini-2.5-pro";
-const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-flash";
-const OPENAI_FALLBACK_MODEL = process.env.OPENAI_MODEL_FALLBACK || "gpt-5.4-mini";
+const OPENAI_PRIMARY_MODEL = process.env.OPENAI_MODEL_PRIMARY || "gpt-4.1";
+const OPENAI_FAST_MODEL = process.env.OPENAI_MODEL_FAST || "gpt-4.1-mini";
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-pro";
+const GEMINI_FAST_FALLBACK_MODEL = process.env.GEMINI_MODEL_FAST_FALLBACK || "gemini-2.5-flash";
 const MAX_ATTEMPTS_PER_MODEL = 2;
 
 export type AssistantUsageCollector = {
@@ -157,13 +158,13 @@ async function summariseHistory(
     .join("\n");
 
   const model = getGenAI().getGenerativeModel({
-    model: FALLBACK_MODEL, // Flash — cheap
+    model: GEMINI_FAST_FALLBACK_MODEL,
     systemInstruction: SUMMARISE_HISTORY_PROMPT,
     generationConfig: { temperature: 0 },
   });
 
   const result = await model.generateContent(transcript);
-  recordGeminiUsage(usageCollector, FALLBACK_MODEL, "assistant_history_summary", result.response.usageMetadata);
+  recordGeminiUsage(usageCollector, GEMINI_FAST_FALLBACK_MODEL, "assistant_history_summary", result.response.usageMetadata);
   return result.response.text().trim();
 }
 
@@ -450,7 +451,7 @@ async function runAssistantModelWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: OPENAI_FALLBACK_MODEL,
+      model: OPENAI_PRIMARY_MODEL,
       temperature: 0.1,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -496,7 +497,7 @@ async function runAssistantModelWithOpenAI(
       ? content
       : "";
 
-  recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_proposal", payload.usage);
+  recordOpenAIUsage(usageCollector, OPENAI_PRIMARY_MODEL, "assistant_proposal", payload.usage);
 
   let parsed: Record<string, unknown>;
   try {
@@ -544,7 +545,7 @@ async function runAssistantSummaryWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: OPENAI_FALLBACK_MODEL,
+      model: OPENAI_PRIMARY_MODEL,
       temperature: 0.1,
       messages: [
         { role: "system", content: STREAM_SUMMARY_PROMPT },
@@ -578,7 +579,7 @@ async function runAssistantSummaryWithOpenAI(
       ? content
       : "";
 
-  recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_summary", payload.usage);
+  recordOpenAIUsage(usageCollector, OPENAI_PRIMARY_MODEL, "assistant_summary", payload.usage);
 
   if (rawText.trim()) {
     onToken(rawText.trim());
@@ -651,36 +652,27 @@ export async function proposeBOQEditWithAI(
   usageCollector?: AssistantUsageCollector,
   conversationContext = "",
 ): Promise<AssistantResponse> {
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
-    (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
-  );
-
-  let lastError: unknown;
-
-  for (const modelName of models) {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
-      try {
-        return await runAssistantModel(modelName, currentBoq, instruction, conversationContext, usageCollector);
-      } catch (err) {
-        lastError = err;
-        if (!isTransientGeminiError(err)) {
-          break;
-        }
-        const isLastAttempt = attempt === MAX_ATTEMPTS_PER_MODEL;
-        if (!isLastAttempt) {
-          const backoffMs = Math.min(1000 * 2 ** (attempt - 1), 3000);
-          await delay(backoffMs);
-        }
-      }
-    }
-  }
-
+  // Try OpenAI first, fall back to Gemini
   try {
     return await runAssistantModelWithOpenAI(currentBoq, instruction, conversationContext, usageCollector);
   } catch (openAIError) {
-    const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
-    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
-    throw new Error(`Gemini assistant failed: ${geminiMessage}. OpenAI fallback failed: ${openAIMessage}`);
+    let lastGeminiError: unknown;
+    for (const modelName of [GEMINI_FALLBACK_MODEL, GEMINI_FAST_FALLBACK_MODEL]) {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+        try {
+          return await runAssistantModel(modelName, currentBoq, instruction, conversationContext, usageCollector);
+        } catch (err) {
+          lastGeminiError = err;
+          if (!isTransientGeminiError(err)) break;
+          if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+            await delay(Math.min(1000 * 2 ** (attempt - 1), 3000));
+          }
+        }
+      }
+    }
+    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant failed";
+    const geminiMessage = lastGeminiError instanceof Error ? lastGeminiError.message : "Gemini fallback failed";
+    throw new Error(`OpenAI assistant failed: ${openAIMessage}. Gemini fallback failed: ${geminiMessage}`);
   }
 }
 
@@ -690,53 +682,42 @@ export async function streamAssistantSummary(
   onToken: (token: string) => void,
   usageCollector?: AssistantUsageCollector,
 ): Promise<void> {
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
-    (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
-  );
-
-  let lastError: unknown;
-
-  for (const modelName of models) {
-    try {
-      const model = getGenAI().getGenerativeModel({
-        model: modelName,
-        systemInstruction: STREAM_SUMMARY_PROMPT,
-        generationConfig: { temperature: 0.1 },
-      });
-
-      const stream = await model.generateContentStream(
-        [
-          "Current BOQ JSON:",
-          JSON.stringify(currentBoq),
-          "",
-          "User edit instruction:",
-          instruction,
-        ].join("\n")
-      );
-
-      for await (const chunk of stream.stream) {
-        const token = chunk.text();
-        if (token) onToken(token);
-      }
-
-      const finalResponse = await stream.response;
-      recordGeminiUsage(usageCollector, modelName, "assistant_summary", finalResponse.usageMetadata);
-
-      return;
-    } catch (err) {
-      lastError = err;
-      if (!isTransientGeminiError(err)) {
-        break;
-      }
-    }
-  }
-
+  // Try OpenAI first, fall back to Gemini streaming
   try {
     await runAssistantSummaryWithOpenAI(currentBoq, instruction, onToken, usageCollector);
     return;
   } catch (openAIError) {
-    const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
-    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
-    throw new Error(`Gemini assistant failed: ${geminiMessage}. OpenAI fallback failed: ${openAIMessage}`);
+    for (const modelName of [GEMINI_FALLBACK_MODEL, GEMINI_FAST_FALLBACK_MODEL]) {
+      try {
+        const model = getGenAI().getGenerativeModel({
+          model: modelName,
+          systemInstruction: STREAM_SUMMARY_PROMPT,
+          generationConfig: { temperature: 0.1 },
+        });
+
+        const stream = await model.generateContentStream(
+          [
+            "Current BOQ JSON:",
+            JSON.stringify(currentBoq),
+            "",
+            "User edit instruction:",
+            instruction,
+          ].join("\n")
+        );
+
+        for await (const chunk of stream.stream) {
+          const token = chunk.text();
+          if (token) onToken(token);
+        }
+
+        const finalResponse = await stream.response;
+        recordGeminiUsage(usageCollector, modelName, "assistant_summary", finalResponse.usageMetadata);
+        return;
+      } catch (geminiError) {
+        if (!isTransientGeminiError(geminiError)) break;
+      }
+    }
+    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant failed";
+    throw new Error(`OpenAI summary failed: ${openAIMessage}. Gemini fallback also failed.`);
   }
 }
