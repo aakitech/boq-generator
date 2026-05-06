@@ -655,18 +655,42 @@ function buildSourceBundle(documents: GenerationInputDocument[]): SourceBundleDo
 }
 
 function buildPromptBundle(documents: GenerationInputDocument[]): string {
-  return documents
+  const hasDrawings = documents.some(
+    (d) => d.role === "supporting" && (d.document_type === "drawing_set" || /drawing|floor plan|site plan/i.test(d.name))
+  );
+
+  const header = hasDrawings
+    ? `NOTE: This bundle includes engineering drawings. When reading ATTACHED DRAWING documents, extract room counts, dimensions, and structural elements to derive quantities. Cross-reference the drawing text with the SOW to resolve ambiguities.\n\n`
+    : "";
+
+  const body = documents
     .map((doc, index) => {
-      const label = doc.role === "primary" ? "PRIMARY SOW" : `ATTACHED ${doc.document_type ?? "DOCUMENT"}`;
+      const isDrawing = doc.role === "supporting" && (
+        doc.document_type === "drawing_set" ||
+        /drawing|floor plan|site plan/i.test(doc.name)
+      );
+      const label = doc.role === "primary"
+        ? "PRIMARY SOW"
+        : isDrawing
+          ? "ATTACHED DRAWING"
+          : `ATTACHED ${doc.document_type ?? "DOCUMENT"}`;
+
+      const drawingNote = isDrawing
+        ? "INSTRUCTION: Read all room labels, dimensions, counts, and schedules from this drawing to supplement the SOW quantities.\n"
+        : "";
+
       return [
         `### ${label} ${index + 1}`,
         `document_id: ${doc.document_id}`,
         `name: ${doc.name}`,
         `pages: ${doc.pages ?? "unknown"}`,
+        drawingNote,
         doc.text,
       ].join("\n");
     })
     .join("\n\n");
+
+  return header + body;
 }
 
 function inferSOWHeuristics(text: string, supportingDocsCount = 0): SOWValidationResult {
@@ -941,7 +965,17 @@ ITEM RULES:
 7. If project metadata (client name, location, date) is missing from the SOW, infer reasonable placeholders.
 
 UNITS (use these exactly):
-m² — area, m³ — volume, m — linear (not lm or lm), No. — enumerated items, Item — lump sum occurrence, LS — lump sum (for one-off allowances), kg — steel reinforcement, t — bulk materials by weight`;
+m² — area, m³ — volume, m — linear (not lm or lm), No. — enumerated items, Item — lump sum occurrence, LS — lump sum (for one-off allowances), kg — steel reinforcement, t — bulk materials by weight
+
+USING ATTACHED DRAWINGS:
+When the document bundle includes [ENGINEERING DRAWING: ...] sections, use them to supplement the SOW:
+- Extract every room name and count (e.g. "8 × Classroom") to generate the correct number of measurable spaces and ensure no room type is omitted
+- Use dimensions shown (mm or m) to add area (m²), volume (m³), and linear (m) items that the SOW prose may not state explicitly
+- Use column grid references and spacings to populate concrete frame and structural items
+- Use door and window schedules to populate joinery items with correct quantities and sizes
+- Use finish schedules to add internal finishes items per room type
+- Use the title block (project name, drawing number, scale) to confirm project scope
+Cross-reference drawing labels against the SOW text to resolve ambiguities. If the SOW and drawing conflict, prefer the drawing for quantities and the SOW for specification.`;
 
 const STRUCTURE_RECOVERY_PROMPT = `You are recovering a failed BOQ structure extraction.
 
@@ -996,7 +1030,16 @@ EVIDENCE RULES:
    - missing: no usable evidence
 7. Set source_anchor to nearest page marker or section heading.
 8. Set source_document to the document_id the evidence came from.
-9. If evidence_type is derived_calculation, add derivation_note with the arithmetic.`;
+9. If evidence_type is derived_calculation, add derivation_note with the arithmetic.
+
+USING ATTACHED DRAWINGS FOR QUANTITIES:
+When the document bundle includes [ENGINEERING DRAWING: ...] sections, read them carefully for take-off data:
+- Room counts: multiply unit area by count to derive total m² (e.g. "8 × Classroom 8000×6000mm" → 8 × 48m² = 384m²)
+- Overall building footprint from dimension strings → use for slab, foundations, roof
+- Structural grid spacing → use for column spacing to count columns (No.) or calculate beam lengths (m)
+- Door/window schedule quantities → use directly as No. counts
+- Floor-to-ceiling heights → use for wall areas and column heights
+Always show your dimensional arithmetic in derivation_note. Set evidence_type to "derived_calculation" and source_document to the drawing filename.`;
 
 async function generateStructure(
   bundleText: string,

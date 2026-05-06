@@ -201,7 +201,8 @@ function GenerateBOQTab() {
 
   async function extractSingleDocument(
     documentFile: File,
-    supportingDocsCount: number
+    supportingDocsCount: number,
+    role: "primary" | "supporting" = "primary"
   ): Promise<{
     text: string;
     pages: number | null;
@@ -219,6 +220,7 @@ function GenerateBOQTab() {
     const form = new FormData();
     form.append("file", documentFile);
     form.append("supporting_docs_count", String(supportingDocsCount));
+    form.append("role", role);
     const res = await fetch("/api/extract", { method: "POST", body: form });
     if (!res.ok) {
       const { error: e } = await res.json();
@@ -268,7 +270,7 @@ function GenerateBOQTab() {
     );
 
     try {
-      const extracted = await extractSingleDocument(picked, 0);
+      const extracted = await extractSingleDocument(picked, 0, "supporting");
       let nextUploads: SupportingUpload[] = [];
       setSupportingUploads((current) => {
         nextUploads = current.map((upload, uploadIndex) =>
@@ -335,7 +337,7 @@ function GenerateBOQTab() {
           supportingDocs.push(upload.processedDoc);
           continue;
         }
-        const extracted = await extractSingleDocument(upload.file, 0);
+        const extracted = await extractSingleDocument(upload.file, 0, "supporting");
         supportingDocs.push({
           document_id: `supporting-${index + 1}`,
           name: upload.file.name,
@@ -925,7 +927,7 @@ function GenerateBOQTab() {
             </div>
             <div>
               <p className="font-medium text-sm text-white">Drop your SOW here</p>
-              <p className="text-xs text-gray-500 mt-1">PDF or Word (.docx) · max 15 MB</p>
+              <p className="text-xs text-gray-500 mt-1">PDF or Word (.docx) · max 15 MB · drawings up to 50 MB</p>
             </div>
           </div>
         )}

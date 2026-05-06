@@ -41,7 +41,7 @@ export type BOQRateSkipReason =
   | "ai_outlier_rejected"
   | "no_safe_rate_reference";
 
-export type RequiredAttachmentType = "boq" | "drawing" | "spec" | "schedule" | "unknown";
+export type RequiredAttachmentType = "boq" | "drawing" | "drawing_set" | "spec" | "schedule" | "unknown";
 export type SourceBundleStatus =
   | "complete"
   | "missing_required_attachments"
