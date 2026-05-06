@@ -139,6 +139,9 @@ export function DocumentList({ docs, onAdd, onRemove, disabled }: Props) {
     );
   }
 
+  // First doc without an error is the effective primary
+  const primaryIndex = docs.findIndex((d) => !d.error);
+
   return (
     <div className="space-y-2">
       <div className="space-y-1.5">
@@ -152,7 +155,7 @@ export function DocumentList({ docs, onAdd, onRemove, disabled }: Props) {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                {i === 0 && (
+                {i === primaryIndex && (
                   <span className="text-[10px] font-medium text-amber-400/70 uppercase tracking-wide shrink-0">Primary</span>
                 )}
                 <p className="text-xs text-white truncate">{doc.file.name}</p>

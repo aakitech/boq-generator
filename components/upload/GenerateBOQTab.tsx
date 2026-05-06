@@ -71,9 +71,11 @@ export default function GenerateBOQTab() {
 
   // Keep bundle in localStorage in sync
   const bundleDocs = useMemo((): ProcessedDoc[] => {
-    return uploadedDocs
-      .map((d, i) => d.processedDoc ? { ...d.processedDoc, role: i === 0 ? "primary" : "supporting" } as ProcessedDoc : null)
-      .filter((d): d is ProcessedDoc => d !== null);
+    const successful = uploadedDocs.filter((d) => d.processedDoc);
+    return successful.map((d, i) => ({
+      ...d.processedDoc!,
+      role: i === 0 ? "primary" : "supporting",
+    }));
   }, [uploadedDocs]);
 
   useEffect(() => {
@@ -101,13 +103,10 @@ export default function GenerateBOQTab() {
     drawing_type?: string | null;
     subject_name?: string | null;
   }> {
-    const maxBytes = role === "supporting" ? 50 * 1024 * 1024 : 15 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      throw new Error(
-        role === "supporting"
-          ? "File too large. Drawings and supporting docs must be under 50 MB."
-          : "File too large. Please upload a PDF or Word document under 15 MB."
-      );
+    // Always allow up to 50 MB client-side — server enforces the 15 MB limit for primary docs
+    // and returns a clear error message. Drawings are primary candidates too.
+    if (file.size > 50 * 1024 * 1024) {
+      throw new Error("File too large. Maximum file size is 50 MB.");
     }
     const form = new FormData();
     form.append("file", file);
