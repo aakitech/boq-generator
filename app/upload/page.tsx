@@ -231,6 +231,14 @@ function GenerateBOQTab() {
     drawing_type?: string | null;
     subject_name?: string | null;
   }> {
+    const maxBytes = role === "supporting" ? 50 * 1024 * 1024 : 15 * 1024 * 1024;
+    if (documentFile.size > maxBytes) {
+      throw new Error(
+        role === "supporting"
+          ? "This file is too large. Drawings and supporting docs must be under 50 MB."
+          : "This file is too large. Please upload a PDF or Word document under 15 MB."
+      );
+    }
     const form = new FormData();
     form.append("file", documentFile);
     form.append("supporting_docs_count", String(supportingDocsCount));
@@ -682,8 +690,8 @@ function GenerateBOQTab() {
 
             {classification.requiredAttachments.length > 0 && (
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-wide text-gray-300">
-                  {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
+                <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                  {classification.shouldBlockGeneration ? "Required" : "Supporting documents"}
                 </p>
                 {(classification.shouldBlockGeneration
                   ? classification.requiredAttachments
@@ -692,28 +700,19 @@ function GenerateBOQTab() {
                   const current = supportingUploads[index];
                   return (
                     <div key={`${attachment.type}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs text-white">
-                          {classification.shouldBlockGeneration
-                            ? formatAttachmentLabel(attachment.type)
-                            : "Supporting document"}
-                        </p>
-                        <p className="text-[11px] text-gray-400">
-                          {classification.shouldBlockGeneration
-                            ? summarizeAttachmentNeed(attachment.type)
-                            : "Add this only if it gives useful project context."}
-                        </p>
-                        {current?.file && (
-                          <p className="text-[11px] text-green-200 mt-1 truncate">{current.file.name}</p>
-                        )}
+                      <div className="min-w-0 flex-1">
+                        {current?.file
+                          ? <p className="text-[11px] text-white truncate">{current.file.name}</p>
+                          : <p className="text-[11px] text-gray-400">{formatAttachmentLabel(attachment.type)}</p>
+                        }
                         {current?.processing && (
-                          <p className="text-[11px] text-amber-200 mt-1">Processing attachment...</p>
+                          <p className="text-[11px] text-amber-200 mt-0.5">Processing...</p>
                         )}
                         {current?.processedDoc && !current.processing && (
-                          <p className="text-[11px] text-green-300 mt-1">Added</p>
+                          <p className="text-[11px] text-green-300 mt-0.5">Added</p>
                         )}
                         {current?.error && (
-                          <p className="text-[11px] text-red-300 mt-1">{current.error}</p>
+                          <p className="text-[11px] text-red-300 mt-0.5 break-words">{current.error}</p>
                         )}
                       </div>
                       <div className="shrink-0">
@@ -779,7 +778,7 @@ function GenerateBOQTab() {
                     >
                       + Add more documents
                     </button>
-                    <p className="text-[10px] text-gray-500 text-center">PDF or Word · max 50 MB · drawings, specs, schedules</p>
+                    <p className="text-[10px] text-gray-500 text-center">PDF or Word · max 50 MB</p>
                   </>
                 )}
               </div>
