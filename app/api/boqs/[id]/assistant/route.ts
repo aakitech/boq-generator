@@ -104,7 +104,13 @@ export async function POST(
     }
 
     const sourceBoq = body.boq ?? (existing.data as BOQDocument);
-    const { summary, proposed_boq } = await proposeBOQEditWithAI(sourceBoq, instruction);
+    const response = await proposeBOQEditWithAI(sourceBoq, instruction);
+
+    if (response.mode === "question") {
+      return NextResponse.json({ question: response.question });
+    }
+
+    const { summary, proposed_boq } = response.result;
     const diff = buildDiffSummary(sourceBoq, proposed_boq);
 
     return NextResponse.json({ summary, proposed_boq, diff });

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateBOQ, validateSOW } from "@/lib/claude";
-import type { GenerationInputDocument } from "@/lib/claude";
+import { generateBOQ, validateSOW } from "@/lib/ai";
+import type { GenerationInputDocument } from "@/lib/ai";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { computePricing, loadTiers } from "@/lib/pricing";
 import { creditsForGeneratedBoq, summarizeAIUsage } from "@/lib/gemini-pricing";
-import type { GeminiUsageCollector } from "@/lib/claude";
+import type { GeminiUsageCollector } from "@/lib/ai";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -87,44 +87,54 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { text, documents, suggest_rates } = body as {
+    const { text, documents, suggest_rates, rate_context } = body as {
       text?: string;
       documents?: GenerationInputDocument[];
       suggest_rates?: boolean;
+      rate_context?: import("@/lib/ai").RateContext;
       is_sow?: boolean;
       sow_warning?: string;
       document_type?: string;
       should_block_generation?: boolean;
     };
 
-    const primaryDocument =
-      documents?.find((doc) => doc.role === "primary") ??
-      (typeof text === "string"
-        ? {
-            document_id: "primary",
-            name: "Primary SOW",
-            role: "primary" as const,
-            document_type: "construction_sow" as const,
-            text,
-            pages: null,
-          }
-        : null);
+    const primaryDocuments =
+      (documents?.filter((doc) => doc.role === "primary") ?? []).length > 0
+        ? documents!.filter((doc) => doc.role === "primary")
+        : typeof text === "string"
+          ? [
+              {
+                document_id: "primary",
+                name: "Primary SOW",
+                role: "primary" as const,
+                document_type: "construction_sow" as const,
+                text,
+                pages: null,
+              },
+            ]
+          : [];
 
-    if (!primaryDocument || typeof primaryDocument.text !== "string") {
+    if (primaryDocuments.length === 0) {
       return NextResponse.json({ error: "primary document text is required" }, { status: 400 });
     }
 
-    if (primaryDocument.text.length < 50) {
+    const hasUsableText = primaryDocuments.some((d) => typeof d.text === "string" && d.text.length >= 50);
+    if (!hasUsableText) {
       return NextResponse.json(
         { error: "Text too short — could not extract meaningful content from PDF" },
         { status: 400 }
       );
     }
 
+    // Concatenate primary docs for SOW validation (up to 5000 chars each)
+    const validationText = primaryDocuments
+      .map((d) => d.text.slice(0, 5000))
+      .join("\n\n");
+
     const supportingDocsCount = (documents ?? []).filter((doc) => doc.role === "supporting").length;
     const usageCollector: GeminiUsageCollector = { entries: [] };
 
-    const validation = await validateSOW(primaryDocument.text, {
+    const validation = await validateSOW(validationText, {
       supportingDocsCount,
       usageCollector,
     });
@@ -144,7 +154,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Truncate to ~80k chars to stay within token limits
-    const truncatedDocuments = (documents ?? [primaryDocument]).map((doc) => ({
+    const truncatedDocuments = (documents ?? primaryDocuments).map((doc) => ({
       ...doc,
       text:
         doc.text.length > 80000
@@ -156,6 +166,7 @@ export async function POST(req: NextRequest) {
       { documents: truncatedDocuments },
       {
         suggestRates: suggest_rates ?? false,
+        rateContext: rate_context,
         documentClassification: validation,
         usageCollector,
       }

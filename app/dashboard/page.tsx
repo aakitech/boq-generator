@@ -243,12 +243,11 @@ export default function DashboardPage() {
             <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto">
               <DocumentIcon className="w-8 h-8 text-gray-600" />
             </div>
-            <p className="text-gray-500">No BOQs yet. Upload a SOW to get started.</p>
             <a
               href="/upload"
               className="inline-block px-6 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors"
             >
-              Generate your first BOQ →
+              New BOQ →
             </a>
           </div>
         ) : filteredBoqs.length === 0 ? (
@@ -285,11 +284,6 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </p>
-                    {isAwaitingManualApproval(boq) ? (
-                      <p className="mt-1 text-xs text-gray-400">
-                        Manual payment requested. Your BOQ will unlock once payment is confirmed.
-                      </p>
-                    ) : null}
                     {boq.processing_status === "failed" && boq.last_error ? (
                       <p className="mt-1 text-xs text-gray-500 truncate">
                         {boq.last_error}

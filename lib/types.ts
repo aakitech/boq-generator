@@ -41,7 +41,19 @@ export type BOQRateSkipReason =
   | "ai_outlier_rejected"
   | "no_safe_rate_reference";
 
-export type RequiredAttachmentType = "boq" | "drawing" | "spec" | "schedule" | "unknown";
+export type RequiredAttachmentType = "boq" | "drawing" | "drawing_set" | "spec" | "schedule" | "unknown";
+
+export type DrawingType =
+  | "site_plan"
+  | "floor_plan"
+  | "elevation"
+  | "section"
+  | "structural"
+  | "services"
+  | "schedule_of_finishes"
+  | "other";
+
+export type StructureMode = "trade_based" | "block_based";
 export type SourceBundleStatus =
   | "complete"
   | "missing_required_attachments"
@@ -134,7 +146,8 @@ export interface BOQDocument {
   prepared_by: string;
   date: string;
   bills: BOQBill[];
-  
+  project_type?: string;
+  structure_mode?: StructureMode;
   pipeline_version?: string;
   document_classification?: DocumentClassification;
   source_bundle?: SourceBundleDocument[];
@@ -280,6 +293,7 @@ export interface BOQStructureArtifact {
   location: string;
   prepared_by: string;
   date: string;
+  structure_mode?: StructureMode;
   bills: Array<{
     number: number;
     title: string;

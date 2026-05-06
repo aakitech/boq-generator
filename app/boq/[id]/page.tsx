@@ -18,7 +18,7 @@ interface DBBoq {
 interface AssistantMessage {
   role: "user" | "assistant";
   content: string;
-  tone?: "default" | "error" | "success";
+  tone?: "default" | "error" | "success" | "question";
 }
 
 interface AssistantDiff {
@@ -58,7 +58,6 @@ export default function BOQPage() {
   const [exporting, setExporting] = useState(false);
   const [exportingPatched, setExportingPatched] = useState(false);
   const [hasSourceExcel, setHasSourceExcel] = useState(false);
-  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [saved, setSaved] = useState(true);
   const [loading, setLoading] = useState(true);
   const [assistantInput, setAssistantInput] = useState("");
@@ -208,7 +207,6 @@ export default function BOQPage() {
 
   async function handleExportPatched() {
     setExportingPatched(true);
-    setExportDropdownOpen(false);
     try {
       ph.capture("excel_downloaded", {
         boq_id: boqId,
@@ -235,18 +233,6 @@ export default function BOQPage() {
 
   async function handleAssistantSubmit() {
     if (!boq || assistantBusy) return;
-    if (remainingCredits < 1) {
-      setAssistantMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "No credits remaining for the AI assistant.",
-          tone: "error",
-        },
-      ]);
-      return;
-    }
-
     const instruction = assistantInput.trim();
     if (!instruction) return;
 
@@ -262,10 +248,15 @@ export default function BOQPage() {
     setAssistantMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
+      // Pass history excluding the empty assistant placeholder just added
+      const historyForApi = assistantMessages
+        .filter((m) => m.content.trim())
+        .map((m) => ({ role: m.role, content: m.content }));
+
       const res = await fetch(`/api/boqs/${boqId}/assistant/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction, boq }),
+        body: JSON.stringify({ instruction, boq, history: historyForApi }),
       });
 
       if (!res.ok) {
@@ -308,6 +299,7 @@ export default function BOQPage() {
           const payload = JSON.parse(dataLine.replace("data:", "").trim()) as {
             token?: string;
             step?: string;
+            question?: string;
             summary?: string;
             proposed_boq?: BOQDocument;
             diff?: AssistantDiff;
@@ -316,9 +308,8 @@ export default function BOQPage() {
           };
 
           if (eventType === "status") {
-            if (payload.step === "planning") setAssistantStatus("Thinking through your request...");
-            if (payload.step === "proposing")
-              setAssistantStatus("Building BOQ proposal for your review...");
+            if (payload.step === "planning") setAssistantStatus(null);
+            if (payload.step === "proposing") setAssistantStatus(null);
           }
 
           if (eventType === "token" && payload.token) {
@@ -326,21 +317,33 @@ export default function BOQPage() {
             updateDraft();
           }
 
+          if (eventType === "question" && payload.question) {
+            receivedProposal = true;
+            assistantDraft = payload.question;
+            setAssistantMessages((prev) => {
+              const next = [...prev];
+              const lastIdx = next.length - 1;
+              if (lastIdx >= 0 && next[lastIdx].role === "assistant") {
+                next[lastIdx] = { role: "assistant", content: payload.question!, tone: "question" };
+              }
+              return next;
+            });
+          }
+
           if (eventType === "result" && payload.proposed_boq && payload.diff) {
             receivedProposal = true;
-            const summary = payload.summary || "Prepared BOQ edits for your review.";
+            const summary = payload.summary || "Edits ready for review.";
             if (!assistantDraft.trim()) {
               assistantDraft = summary;
               updateDraft();
             }
-
             setAssistantPreview({
               summary,
               proposedBoq: payload.proposed_boq,
               diff: payload.diff,
             });
             appendAssistantMessage(
-              `Proposal ready. ${summary}\n${formatAssistantDiff(payload.diff)}\nReview it below, then apply or discard it.`,
+              `${summary}\n${formatAssistantDiff(payload.diff)}`,
               "success"
             );
             if (typeof payload.remainingCredits === "number") {
@@ -484,44 +487,20 @@ export default function BOQPage() {
               </span>
             )}
             {hasSourceExcel ? (
-              <div className="relative">
-                <button
-                  onClick={() => setExportDropdownOpen((v) => !v)}
-                  disabled={exporting || exportingPatched}
-                  className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-60 inline-flex items-center gap-1.5"
-                >
-                  {exporting || exportingPatched ? "Exporting…" : "Download Excel"}
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                  </svg>
-                </button>
-                {exportDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-white/10 bg-[#1a1a1a] shadow-xl z-50">
-                    <button
-                      onClick={handleExportPatched}
-                      className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/5 rounded-t-lg"
-                    >
-                      <p className="font-medium">Download original with rates</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Your uploaded Excel file, with rates filled in</p>
-                    </button>
-                    <div className="border-t border-white/5" />
-                    <button
-                      onClick={handleExport}
-                      className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/5 rounded-b-lg"
-                    >
-                      <p className="font-medium">Download formatted BOQ</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Fresh export in our house style (ZMW)</p>
-                    </button>
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={handleExportPatched}
+                disabled={exportingPatched}
+                className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-60"
+              >
+                {exportingPatched ? "Exporting..." : "Download rated Excel"}
+              </button>
             ) : (
               <button
                 onClick={handleExport}
                 disabled={exporting}
                 className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-60"
               >
-                {exporting ? "Exporting…" : "Download Excel"}
+                {exporting ? "Exporting..." : "Download Excel"}
               </button>
             )}
             <button
@@ -766,9 +745,10 @@ function AssistantPanel({
   }, [assistantMessages, assistantStatus]);
 
   const quickPrompts = [
-    "Add sample rates and amounts to all measurable items.",
-    "Regroup electrical items into a separate bill.",
-    "Rewrite item descriptions to be concise and technical.",
+    "Rewrite descriptions to ASAQS standard.",
+    "Fill ZMW rates for all unpriced items.",
+    "Add a 10% contingency to the Preliminaries bill.",
+    "Reorder bills to correct trade sequence.",
   ];
 
   return (
@@ -786,10 +766,7 @@ function AssistantPanel({
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3">
         {showWelcome ? (
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-3">
-            <p className="text-xs text-gray-400 leading-relaxed">
-              Tell me what to change in this BOQ and I will generate a safe proposal first.
-            </p>
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
             <div className={`grid gap-1.5 transition-opacity ${assistantBusy ? "opacity-40 pointer-events-none" : ""}`}>
               {quickPrompts.map((prompt) => (
                 <button
@@ -816,6 +793,8 @@ function AssistantPanel({
                         ? "mr-auto bg-red-500/10 text-red-100 border border-red-500/20"
                         : message.tone === "success"
                           ? "mr-auto bg-emerald-500/10 text-emerald-100 border border-emerald-500/20"
+                        : message.tone === "question"
+                          ? "mr-auto bg-amber-500/10 text-amber-100 border border-amber-500/30"
                         : "mr-auto bg-white/[0.04] text-gray-300 border border-white/10"
                   }`}
                 >
@@ -891,7 +870,7 @@ function AssistantPanel({
       <div className="p-3 border-t border-white/10 space-y-2">
         <textarea
           className="boq-cell-editable text-white w-full min-h-[76px]"
-          placeholder="Describe the change — e.g. Add a drainage bill with 3 typical items."
+          placeholder="Tell me what to change…"
           value={assistantInput}
           onChange={(e) => onInputChange(e.target.value)}
           disabled={assistantBusy}

@@ -3,9 +3,10 @@ import type { BOQDocument } from "./types";
 import { computeAICostUsd, type AIUsageEntry } from "./gemini-pricing";
 import { getServerEnv } from "./server-env";
 
-const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY || "gemini-2.5-pro";
-const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-flash";
-const OPENAI_FALLBACK_MODEL = process.env.OPENAI_MODEL_FALLBACK || "gpt-5.4-mini";
+const OPENAI_PRIMARY_MODEL = process.env.OPENAI_MODEL_PRIMARY || "gpt-4.1";
+const OPENAI_FAST_MODEL = process.env.OPENAI_MODEL_FAST || "gpt-4.1-mini";
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || "gemini-2.5-pro";
+const GEMINI_FAST_FALLBACK_MODEL = process.env.GEMINI_MODEL_FAST_FALLBACK || "gemini-2.5-flash";
 const MAX_ATTEMPTS_PER_MODEL = 2;
 
 export type AssistantUsageCollector = {
@@ -78,24 +79,120 @@ const ASSISTANT_RESULT_SCHEMA: GeminiSchemaNode = {
   required: ["summary", "proposed_boq"],
 };
 
-const SYSTEM_PROMPT = `You are a BOQ editing assistant.
+const SYSTEM_PROMPT = `You are a senior quantity surveyor assistant helping a user edit a Bill of Quantities (BOQ) for a Zambian construction project. You practise under ASAQS conventions (Southern African QS Association), aligned with SMM7 measurement rules.
 
-You can ONLY help edit an existing Bill of Quantities JSON.
+You can ONLY help edit the provided BOQ. Do not answer unrelated questions — if asked, explain you are a BOQ editing assistant only.
 
-Rules:
-1. Only modify the provided BOQ JSON.
-2. Do not answer unrelated questions (weather, coding, etc). If user asks unrelated request, keep BOQ unchanged and explain you only edit BOQ.
-3. Keep BOQ structure valid with project, location, prepared_by, date, and bills.
-4. Each bill must keep: number, title, items.
-5. Each item must keep: item_no, description, unit. qty/rate/amount can be null.
-6. Preserve existing data unless user explicitly asks to change it.
-7. If user asks to add pricing, set rate and amount where possible. If no rate is provided, keep rate and amount null.
-8. Keep the response concise in summary and return full proposed_boq JSON.`;
+EDITING RULES:
+1. Return the complete modified BOQ JSON plus a plain-text summary of changes made.
+2. Preserve all existing data unless the user explicitly asks to change it.
+3. Never add, remove, or renumber bills without an explicit instruction to do so.
+
+DESCRIPTION STANDARDS — when writing or rewriting descriptions, follow ASAQS style:
+- State work method first, then material, then location/dimension: e.g. "Excavate in pickable material for foundation trenches not exceeding 1.50m deep, get out and deposit in temporary spoil heaps on site"
+- Include material grade/spec where relevant: "Vibrated reinforced in-situ concrete (Grade 30) in 200mm horizontal suspended slab"
+- Use British English (metre, labour, colour)
+- For items measured net, append "(measured net — no allowance made for laps)"
+- Use "Ditto" only when description and unit are identical to the immediately preceding item
+
+MEASUREMENT RULES — when the user asks to add or correct quantities:
+- Concrete: net in place, no waste factor
+- Reinforcement: by mass (kg), laps not measured separately
+- Brickwork/blockwork: flat gross area, deduct openings over 0.1m²
+- Plasterwork: net, deduct openings over 0.5m²
+- Mesh/DPM: net, no allowance for laps
+- Pipework: linear metres along centreline, fittings not included
+- Preliminary items: qty = 1, unit = Item or LS
+
+RATE RULES — when the user asks to price or reprice items (ZMW all-in rates, Q1 2026):
+- Earthworks: pickable excavation 55–90/m³, backfill 45–85/m³, imported fill 150–320/m³
+- Concrete Grade 25: 2,500–4,000/m³; Grade 30: 3,800–5,800/m³; blinding: 1,200–2,200/m²
+- Reinforcement Y-bars: 38–58/kg; mesh type 257: 260–500/m²
+- Blockwork 200mm: 340–550/m²; 150mm: 320–480/m²
+- Plaster internal: 130–230/m²; external: 160–290/m²
+- Ceramic floor tiles: 290–700/m²; wall tiles: 260–580/m²
+- IBR roofing: 200–350/m²; timber rafters: 110–200/m; purlins: 70–140/m
+- Doors (hardwood solid-core): 3,500–7,500/No.; frames: 2,500–5,500/No.
+- uPVC soil pipe 110mm: 300–580/m; water pipe PPR 20mm: 200–420/m
+- Socket outlet single: 200–450/No.; double: 350–700/No.
+- Light fitting LED panel: 900–2,800/No.; distribution board 8-way: 6,500–14,000/No.
+- Emulsion paint 2 coats internal: 90–180/m²; external masonry paint: 110–220/m²
+- Mobilisation: 50,000–500,000/Item (2–4% of works value)
+- Provisional sum/contingency: price as the PS amount, qty = 1
+
+STRUCTURAL RULES — always maintain:
+- project, location, prepared_by, date at top level
+- Each bill: number, title, items array
+- Each item: description (required); item_no, unit, qty, rate, amount, is_header, note (all nullable)
+- amount = qty × rate exactly when both are non-null`;
 
 const STREAM_SUMMARY_PROMPT = `You are a BOQ editing assistant. The user gave an instruction for editing a BOQ.
 
 Return a short plan summary in plain text with 2-4 concise bullets about what you will change.
 Do not include markdown code blocks.`;
+
+const SUMMARISE_HISTORY_PROMPT = `Summarise the following BOQ assistant conversation turns into 3-5 concise sentences. Capture: what the user asked for, what was changed, and any decisions or preferences the user expressed. Omit JSON. Plain text only.`;
+
+// A message in the conversation history passed from the frontend.
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+// The two response modes the assistant can return.
+// "question" = assistant needs clarification before acting (free, no credits).
+// "proposal" = assistant produced a BOQ edit (costs credits).
+export type AssistantResponseMode = "question" | "proposal";
+
+export type AssistantResponse =
+  | { mode: "question"; question: string }
+  | { mode: "proposal"; result: AssistantEditResult };
+
+// Compress older turns into a single summary string using Flash (cheap).
+async function summariseHistory(
+  turns: ChatMessage[],
+  usageCollector?: AssistantUsageCollector,
+): Promise<string> {
+  const transcript = turns
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n");
+
+  const model = getGenAI().getGenerativeModel({
+    model: GEMINI_FAST_FALLBACK_MODEL,
+    systemInstruction: SUMMARISE_HISTORY_PROMPT,
+    generationConfig: { temperature: 0 },
+  });
+
+  const result = await model.generateContent(transcript);
+  recordGeminiUsage(usageCollector, GEMINI_FAST_FALLBACK_MODEL, "assistant_history_summary", result.response.usageMetadata);
+  return result.response.text().trim();
+}
+
+// Build the conversation context block injected before the current instruction.
+// Keeps last 4 turns verbatim; compresses anything older into a summary.
+export async function buildConversationContext(
+  history: ChatMessage[],
+  usageCollector?: AssistantUsageCollector,
+): Promise<string> {
+  if (history.length === 0) return "";
+
+  const VERBATIM_TURNS = 4; // last N messages kept as-is
+  const older = history.slice(0, -VERBATIM_TURNS);
+  const recent = history.slice(-VERBATIM_TURNS);
+
+  const parts: string[] = [];
+
+  if (older.length > 0) {
+    const summary = await summariseHistory(older, usageCollector);
+    parts.push(`[Earlier conversation summary]\n${summary}`);
+  }
+
+  for (const msg of recent) {
+    parts.push(`${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`);
+  }
+
+  return parts.join("\n\n");
+}
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -244,8 +341,9 @@ async function runAssistantModel(
   modelName: string,
   currentBoq: BOQDocument,
   instruction: string,
+  conversationContext: string,
   usageCollector?: AssistantUsageCollector,
-): Promise<AssistantEditResult> {
+): Promise<AssistantResponse> {
   const model = getGenAI().getGenerativeModel({
     model: modelName,
     systemInstruction: SYSTEM_PROMPT,
@@ -257,29 +355,57 @@ async function runAssistantModel(
     } as any,
   });
 
+  const contextBlock = conversationContext
+    ? `Conversation so far:\n${conversationContext}\n\n`
+    : "";
+
   const result = await model.generateContent(
     [
+      contextBlock,
       "Current BOQ JSON:",
       JSON.stringify(currentBoq),
       "",
-      "User edit instruction:",
+      "User instruction:",
       instruction,
       "",
-      "Return strict JSON with shape: {\"summary\": string, \"proposed_boq\": BOQDocument }",
+      'Decide: if the instruction is ambiguous or missing critical information (spec, scope, which bill), ask ONE short clarifying question instead of guessing. Otherwise produce the edit.',
+      'Return JSON: { "mode": "question", "question": "..." } OR { "mode": "proposal", "summary": "...", "proposed_boq": {...} }',
     ].join("\n")
   );
 
-  const parsed = parseAssistantJson(result.response.text());
   recordGeminiUsage(usageCollector, modelName, "assistant_proposal", result.response.usageMetadata);
-  const proposed = normalizeBoq(parsed.proposed_boq, currentBoq);
 
+  const raw = result.response.text();
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const first = raw.indexOf("{");
+    const last = raw.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      parsed = JSON.parse(raw.slice(first, last + 1)) as Record<string, unknown>;
+    } else {
+      throw new Error("Assistant returned non-JSON output");
+    }
+  }
+
+  if (parsed.mode === "question" && typeof parsed.question === "string") {
+    return { mode: "question", question: parsed.question };
+  }
+
+  // proposal mode (or legacy shape without mode field)
+  const boqData = (parsed.proposed_boq ?? parsed) as unknown;
+  const proposed = normalizeBoq(boqData, currentBoq);
   if (!proposed || !Array.isArray(proposed.bills)) {
     throw new Error("Assistant returned invalid BOQ structure");
   }
 
   return {
-    summary: parsed.summary || "Prepared BOQ edits from your instruction.",
-    proposed_boq: proposed,
+    mode: "proposal",
+    result: {
+      summary: (typeof parsed.summary === "string" ? parsed.summary : null) || "Prepared BOQ edits from your instruction.",
+      proposed_boq: proposed,
+    },
   };
 }
 
@@ -311,9 +437,13 @@ function parseAssistantJson(raw: string): { summary: string; proposed_boq: BOQDo
 async function runAssistantModelWithOpenAI(
   currentBoq: BOQDocument,
   instruction: string,
+  conversationContext: string,
   usageCollector?: AssistantUsageCollector,
-): Promise<AssistantEditResult> {
+): Promise<AssistantResponse> {
   const apiKey = ensureOpenAIConfigured();
+  const contextBlock = conversationContext
+    ? `Conversation so far:\n${conversationContext}\n\n`
+    : "";
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -321,20 +451,22 @@ async function runAssistantModelWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: OPENAI_FALLBACK_MODEL,
+      model: OPENAI_PRIMARY_MODEL,
       temperature: 0.1,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
           content: [
+            contextBlock,
             "Current BOQ JSON:",
             JSON.stringify(currentBoq),
             "",
-            "User edit instruction:",
+            "User instruction:",
             instruction,
             "",
-            'Return strict JSON with shape: {"summary": string, "proposed_boq": BOQDocument }',
+            'Decide: if the instruction is ambiguous or missing critical information, ask ONE short clarifying question. Otherwise produce the edit.',
+            'Return JSON: { "mode": "question", "question": "..." } OR { "mode": "proposal", "summary": "...", "proposed_boq": {...} }',
           ].join("\n"),
         },
       ],
@@ -365,18 +497,37 @@ async function runAssistantModelWithOpenAI(
       ? content
       : "";
 
-  recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_proposal", payload.usage);
+  recordOpenAIUsage(usageCollector, OPENAI_PRIMARY_MODEL, "assistant_proposal", payload.usage);
 
-  const parsed = parseAssistantJson(rawText);
-  const proposed = normalizeBoq(parsed.proposed_boq, currentBoq);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(rawText) as Record<string, unknown>;
+  } catch {
+    const first = rawText.indexOf("{");
+    const last = rawText.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      parsed = JSON.parse(rawText.slice(first, last + 1)) as Record<string, unknown>;
+    } else {
+      throw new Error("Assistant returned non-JSON output");
+    }
+  }
 
+  if (parsed.mode === "question" && typeof parsed.question === "string") {
+    return { mode: "question", question: parsed.question };
+  }
+
+  const boqData = (parsed.proposed_boq ?? parsed) as unknown;
+  const proposed = normalizeBoq(boqData, currentBoq);
   if (!proposed || !Array.isArray(proposed.bills)) {
     throw new Error("Assistant returned invalid BOQ structure");
   }
 
   return {
-    summary: parsed.summary || "Prepared BOQ edits from your instruction.",
-    proposed_boq: proposed,
+    mode: "proposal",
+    result: {
+      summary: (typeof parsed.summary === "string" ? parsed.summary : null) || "Prepared BOQ edits from your instruction.",
+      proposed_boq: proposed,
+    },
   };
 }
 
@@ -394,7 +545,7 @@ async function runAssistantSummaryWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: OPENAI_FALLBACK_MODEL,
+      model: OPENAI_PRIMARY_MODEL,
       temperature: 0.1,
       messages: [
         { role: "system", content: STREAM_SUMMARY_PROMPT },
@@ -428,7 +579,7 @@ async function runAssistantSummaryWithOpenAI(
       ? content
       : "";
 
-  recordOpenAIUsage(usageCollector, OPENAI_FALLBACK_MODEL, "assistant_summary", payload.usage);
+  recordOpenAIUsage(usageCollector, OPENAI_PRIMARY_MODEL, "assistant_summary", payload.usage);
 
   if (rawText.trim()) {
     onToken(rawText.trim());
@@ -499,38 +650,28 @@ export async function proposeBOQEditWithAI(
   currentBoq: BOQDocument,
   instruction: string,
   usageCollector?: AssistantUsageCollector,
-): Promise<AssistantEditResult> {
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
-    (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
-  );
-
-  let lastError: unknown;
-
-  for (const modelName of models) {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
-      try {
-        return await runAssistantModel(modelName, currentBoq, instruction, usageCollector);
-      } catch (err) {
-        lastError = err;
-        if (!isTransientGeminiError(err)) {
-          break;
-        }
-
-        const isLastAttempt = attempt === MAX_ATTEMPTS_PER_MODEL;
-        if (!isLastAttempt) {
-          const backoffMs = Math.min(1000 * 2 ** (attempt - 1), 3000);
-          await delay(backoffMs);
-        }
+  conversationContext = "",
+): Promise<AssistantResponse> {
+  // OpenAI primary with retries
+  let lastOpenAIError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+    try {
+      return await runAssistantModelWithOpenAI(currentBoq, instruction, conversationContext, usageCollector);
+    } catch (err) {
+      lastOpenAIError = err;
+      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+        await delay(Math.min(1000 * 2 ** (attempt - 1), 3000));
       }
     }
   }
 
+  // Gemini emergency fallback — one attempt
   try {
-    return await runAssistantModelWithOpenAI(currentBoq, instruction, usageCollector);
-  } catch (openAIError) {
-    const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
-    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
-    throw new Error(`Gemini assistant failed: ${geminiMessage}. OpenAI fallback failed: ${openAIMessage}`);
+    return await runAssistantModel(GEMINI_FALLBACK_MODEL, currentBoq, instruction, conversationContext, usageCollector);
+  } catch (geminiError) {
+    const openAIMessage = lastOpenAIError instanceof Error ? lastOpenAIError.message : "OpenAI assistant failed";
+    const geminiMessage = geminiError instanceof Error ? geminiError.message : "Gemini fallback failed";
+    throw new Error(`OpenAI assistant failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMessage}. Gemini fallback failed: ${geminiMessage}`);
   }
 }
 
@@ -540,53 +681,38 @@ export async function streamAssistantSummary(
   onToken: (token: string) => void,
   usageCollector?: AssistantUsageCollector,
 ): Promise<void> {
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(
-    (value, index, arr) => Boolean(value) && arr.indexOf(value) === index
-  );
-
-  let lastError: unknown;
-
-  for (const modelName of models) {
+  // OpenAI primary with retries
+  let lastOpenAIError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
     try {
-      const model = getGenAI().getGenerativeModel({
-        model: modelName,
-        systemInstruction: STREAM_SUMMARY_PROMPT,
-        generationConfig: { temperature: 0.1 },
-      });
-
-      const stream = await model.generateContentStream(
-        [
-          "Current BOQ JSON:",
-          JSON.stringify(currentBoq),
-          "",
-          "User edit instruction:",
-          instruction,
-        ].join("\n")
-      );
-
-      for await (const chunk of stream.stream) {
-        const token = chunk.text();
-        if (token) onToken(token);
-      }
-
-      const finalResponse = await stream.response;
-      recordGeminiUsage(usageCollector, modelName, "assistant_summary", finalResponse.usageMetadata);
-
+      await runAssistantSummaryWithOpenAI(currentBoq, instruction, onToken, usageCollector);
       return;
     } catch (err) {
-      lastError = err;
-      if (!isTransientGeminiError(err)) {
-        break;
+      lastOpenAIError = err;
+      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+        await delay(Math.min(1000 * 2 ** (attempt - 1), 3000));
       }
     }
   }
 
+  // Gemini emergency fallback — one attempt
   try {
-    await runAssistantSummaryWithOpenAI(currentBoq, instruction, onToken, usageCollector);
-    return;
-  } catch (openAIError) {
-    const geminiMessage = lastError instanceof Error ? lastError.message : "Gemini assistant temporarily unavailable";
-    const openAIMessage = openAIError instanceof Error ? openAIError.message : "OpenAI assistant fallback failed";
-    throw new Error(`Gemini assistant failed: ${geminiMessage}. OpenAI fallback failed: ${openAIMessage}`);
+    const model = getGenAI().getGenerativeModel({
+      model: GEMINI_FALLBACK_MODEL,
+      systemInstruction: STREAM_SUMMARY_PROMPT,
+      generationConfig: { temperature: 0.1 },
+    });
+    const stream = await model.generateContentStream(
+      ["Current BOQ JSON:", JSON.stringify(currentBoq), "", "User edit instruction:", instruction].join("\n")
+    );
+    for await (const chunk of stream.stream) {
+      const token = chunk.text();
+      if (token) onToken(token);
+    }
+    const finalResponse = await stream.response;
+    recordGeminiUsage(usageCollector, GEMINI_FALLBACK_MODEL, "assistant_summary", finalResponse.usageMetadata);
+  } catch (geminiError) {
+    const openAIMessage = lastOpenAIError instanceof Error ? lastOpenAIError.message : "OpenAI summary failed";
+    throw new Error(`OpenAI summary failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMessage}. Gemini fallback failed.`);
   }
 }

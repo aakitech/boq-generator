@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
-import { generateBOQExcel } from "@/lib/excel";
+import { generateBOQExcelFromTemplate } from "@/lib/excel-template";
 import type { BOQDocument } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid BOQ data" }, { status: 400 });
     }
 
-    const buffer = generateBOQExcel(boq);
+    const buffer = await generateBOQExcelFromTemplate(boq);
 
     const filename = `BOQ_${boq.project.replace(/[^\w\s]/g, "").replace(/\s+/g, "_").slice(0, 50)}.xlsx`;
 

@@ -56,7 +56,7 @@ export async function GET(
     const originalBuffer = Buffer.from(arrayBuffer);
 
     // Patch the original Excel with rates from the BOQ
-    const patched = patchExcelWithRates(
+    const patched = await patchExcelWithRates(
       originalBuffer,
       row.data,
       row.rate_col_header ?? "Rate",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
-import { fillMissingRatesInExistingBOQ, type RateContext } from "@/lib/claude";
+import { fillMissingRatesInExistingBOQ, type RateContext } from "@/lib/ai";
 import { extractWorkbookBOQ } from "@/lib/excel";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
@@ -146,7 +146,7 @@ export async function POST(
     }
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
-    const workbookBoq = extractWorkbookBOQ(buffer, {
+    const workbookBoq = await extractWorkbookBOQ(buffer, {
       rateColumnHeader: boqRow.rate_col_header ?? null,
       amountColumnHeader: boqRow.amount_col_header ?? null,
     });

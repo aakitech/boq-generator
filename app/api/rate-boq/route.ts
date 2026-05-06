@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { getStripe } from "@/lib/stripe";
-import { fillMissingRatesInExistingBOQ, RateContext } from "@/lib/claude";
+import { fillMissingRatesInExistingBOQ, RateContext } from "@/lib/ai";
 import { extractWorkbookBOQ } from "@/lib/excel";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { consumeWalletCredits } from "@/lib/credits";
 import { summarizeAIUsage } from "@/lib/gemini-pricing";
-import type { GeminiUsageCollector } from "@/lib/claude";
+import type { GeminiUsageCollector } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
     // Parse the original workbook deterministically, then fill only missing rates.
     const arrayBuffer = await fileData.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const workbookBoq = extractWorkbookBOQ(buffer, {
+    const workbookBoq = await extractWorkbookBOQ(buffer, {
       rateColumnHeader: rateColHeader || null,
       amountColumnHeader: amountColHeader || null,
     });

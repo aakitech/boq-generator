@@ -2,9 +2,9 @@ import { logger } from "@/lib/logger";
 import { NextRequest } from "next/server";
 import type { BOQDocument } from "@/lib/types";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { proposeBOQEditWithAI, streamAssistantSummary, type AssistantUsageCollector } from "@/lib/boq-assistant";
-import { consumeWalletCredits, getRemainingCredits } from "@/lib/credits";
-import { creditsForAssistantEdit, summarizeAIUsage } from "@/lib/gemini-pricing";
+import { proposeBOQEditWithAI, streamAssistantSummary, buildConversationContext, type AssistantUsageCollector, type ChatMessage } from "@/lib/boq-assistant";
+import { consumeWalletCredits } from "@/lib/credits";
+import { summarizeAIUsage } from "@/lib/gemini-pricing";
 import { trackEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
@@ -97,6 +97,7 @@ export async function POST(
         const body = (await req.json()) as {
           instruction?: string;
           boq?: BOQDocument;
+          history?: ChatMessage[];
         };
 
         const instruction = body.instruction?.trim();
@@ -120,28 +121,36 @@ export async function POST(
         }
 
         const sourceBoq = body.boq ?? (existing.data as BOQDocument);
+        const history: ChatMessage[] = Array.isArray(body.history) ? body.history : [];
         const serviceClient =
           process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase;
-        const currentCredits = await getRemainingCredits(serviceClient, user.id);
-
-        if (currentCredits < 1) {
-          write("error", { message: "No credits remaining for the AI assistant.", status: 402 });
-          controller.close();
-          return;
-        }
 
         const usageCollector: AssistantUsageCollector = { entries: [] };
 
+        // Build conversation context (summarises older turns, keeps last 4 verbatim).
+        // This call is cheap (Flash) and happens before credit check so questions are free.
+        const conversationContext = await buildConversationContext(history, usageCollector);
+
         write("status", { step: "planning" });
+        const response = await proposeBOQEditWithAI(sourceBoq, instruction, usageCollector, conversationContext);
+
+        // Question mode: free, no credits consumed. No summary streaming.
+        if (response.mode === "question") {
+          write("question", { question: response.question });
+          write("done", { ok: true });
+          return;
+        }
+
+        const { result } = response;
+
+        write("status", { step: "proposing" });
         await streamAssistantSummary(sourceBoq, instruction, (token) => {
           write("token", { token });
         }, usageCollector);
 
-        write("status", { step: "proposing" });
-        const result = await proposeBOQEditWithAI(sourceBoq, instruction, usageCollector);
         const diff = buildDiffSummary(sourceBoq, result.proposed_boq);
         const usageSummary = summarizeAIUsage(usageCollector.entries);
-        const assistantCredits = Math.max(creditsForAssistantEdit(), usageSummary.creditsCharged, 1);
+        const assistantCredits = Math.max(usageSummary.creditsCharged, 1);
         const creditResult = await consumeWalletCredits(serviceClient, {
           userId: user.id,
           reason: "assistant_boq",
@@ -159,7 +168,7 @@ export async function POST(
         });
 
         if (creditResult.status === "insufficient") {
-          write("error", { message: "You do not have enough credits left to use the AI assistant.", status: 402 });
+          write("error", { message: "Not enough credits for this edit.", status: 402 });
           controller.close();
           return;
         }

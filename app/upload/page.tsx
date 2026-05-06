@@ -20,6 +20,16 @@ type ExtractedDoc = {
   document_type: BOQDocumentType | RequiredAttachment["type"] | "supporting_context";
   text: string;
   pages: number | null;
+  drawing_type?: string | null;
+  subject_name?: string | null;
+};
+
+type ExtraDoc = {
+  id: string;
+  file: File;
+  processedDoc?: ExtractedDoc | null;
+  processing?: boolean;
+  error?: string | null;
 };
 type SupportingUpload = {
   requirement: RequiredAttachment;
@@ -100,9 +110,44 @@ function clearGenerationDraftStorage() {
 
 // ─── Generate BOQ Tab ────────────────────────────────────────────────────────
 
+const MB = 1024 * 1024;
+const PRIMARY_DOCUMENT_MAX_MB = 15;
+const SUPPORTING_DOCUMENT_MAX_MB = 50;
+
+function formatFileSize(bytes: number) {
+  return `${(bytes / MB).toFixed(1)} MB`;
+}
+
+function sizeErrorForDocument(file: File, role: "primary" | "supporting") {
+  const maxMb = role === "supporting" ? SUPPORTING_DOCUMENT_MAX_MB : PRIMARY_DOCUMENT_MAX_MB;
+  if (file.size <= maxMb * MB) return null;
+
+  if (role === "primary") {
+    return `This file is ${formatFileSize(file.size)}. Main SOW uploads are limited to ${maxMb} MB.`;
+  }
+
+  return `This file is ${formatFileSize(file.size)}. Supporting files are limited to ${maxMb} MB.`;
+}
+
+async function readApiResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await res.json()) as T;
+  }
+
+  const raw = (await res.text()).trim();
+  const message =
+    res.status === 413
+      ? "This file is too large for upload. Try compressing it, splitting it, or uploading drawings as supporting documents."
+      : raw || `Request failed with status ${res.status}. Please try again.`;
+
+  throw new Error(message);
+}
+
 function GenerateBOQTab() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const additionalSupportingInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<number | null>(null);
@@ -110,6 +155,8 @@ function GenerateBOQTab() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [suggestRates, setSuggestRates] = useState(false);
+  const [ctx, setCtx] = useState<RateContext>(DEFAULT_CONTEXT);
+  const [customMargin, setCustomMargin] = useState(false);
   const [sowWarning, setSowWarning] = useState<string | null>(null);
   const [isSOW, setIsSOW] = useState<boolean | null>(null);
   const [boqId, setBoqId] = useState<string | null>(null);
@@ -130,6 +177,7 @@ function GenerateBOQTab() {
     flags: string[];
   } | null>(null);
   const [supportingUploads, setSupportingUploads] = useState<SupportingUpload[]>([]);
+  const [extraDocs, setExtraDocs] = useState<ExtraDoc[]>([]);
   const [primaryDoc, setPrimaryDoc] = useState<ExtractedDoc | null>(null);
   const [bundleDocs, setBundleDocs] = useState<ExtractedDoc[]>([]);
   const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
@@ -140,6 +188,7 @@ function GenerateBOQTab() {
   const { remainingCredits, refreshCredits, setRemainingCredits } = useCredits();
   const attachedSupportingCount = supportingUploads.filter((upload) => upload.file).length;
   const processedSupportingCount = supportingUploads.filter((upload) => upload.processedDoc).length;
+  const hasSupportingUploadInProgress = supportingUploads.some((upload) => upload.processing);
   const hasAllRequiredAttachments =
     classification?.requiredAttachments.length
       ? classification.requiredAttachments.every((_, index) => Boolean(supportingUploads[index]?.file))
@@ -160,6 +209,9 @@ function GenerateBOQTab() {
       return PAYMENT_MODE !== "stripe" ? "Opening WhatsApp..." : "Opening secure checkout...";
     }
     if (stage === "generating") return "Generating your BOQ...";
+    if (hasSupportingUploadInProgress) {
+      return "Processing supporting document...";
+    }
     if (classification?.shouldBlockGeneration && hasAllRequiredAttachments && !hasProcessedAllRequiredAttachments) {
       return "Processing attachments...";
     }
@@ -169,7 +221,7 @@ function GenerateBOQTab() {
         : "Add required attachments to continue";
     }
     return "Generate BOQ →";
-  }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, remainingCredits, stage]);
+  }, [classification, hasAllRequiredAttachments, hasProcessedAllRequiredAttachments, hasSupportingUploadInProgress, remainingCredits, stage]);
 
   const hasOptionalSupportingDocs = Boolean(
     classification && !classification.shouldBlockGeneration && classification.requiredAttachments.length > 0
@@ -181,6 +233,20 @@ function GenerateBOQTab() {
       setError("Please upload a PDF or Word (.docx) document.");
       return;
     }
+    const fileSizeError = sizeErrorForDocument(f, "primary");
+    if (fileSizeError) {
+      setFile(f);
+      setStage("error");
+      setError(fileSizeError);
+      setPages(null);
+      setSowWarning(null);
+      setIsSOW(null);
+      setClassification(null);
+      setSupportingUploads([]);
+      setPrimaryDoc(null);
+      setBundleDocs([]);
+      return;
+    }
     setFile(f);
     setStage("idle");
     setError(null);
@@ -189,6 +255,7 @@ function GenerateBOQTab() {
     setIsSOW(null);
     setClassification(null);
     setSupportingUploads([]);
+    setExtraDocs([]);
     setPrimaryDoc(null);
     setBundleDocs([]);
     setManualPaymentRequested(false);
@@ -199,7 +266,8 @@ function GenerateBOQTab() {
 
   async function extractSingleDocument(
     documentFile: File,
-    supportingDocsCount: number
+    supportingDocsCount: number,
+    role: "primary" | "supporting" = "primary"
   ): Promise<{
     text: string;
     pages: number | null;
@@ -213,16 +281,33 @@ function GenerateBOQTab() {
     positiveSignals?: string[];
     negativeSignals?: string[];
     sowFlags?: string[];
+    drawing_type?: string | null;
+    subject_name?: string | null;
   }> {
     const form = new FormData();
     form.append("file", documentFile);
     form.append("supporting_docs_count", String(supportingDocsCount));
+    form.append("role", role);
     const res = await fetch("/api/extract", { method: "POST", body: form });
+    const body = await readApiResponse<{
+      error?: string;
+      text: string;
+      pages: number | null;
+      isSOW?: boolean;
+      sowWarning?: string | null;
+      sowConfidence?: number | null;
+      documentType?: BOQDocumentType | null;
+      shouldBlockGeneration?: boolean;
+      requiredAttachments?: RequiredAttachment[];
+      sourceBundleStatus?: SourceBundleStatus;
+      positiveSignals?: string[];
+      negativeSignals?: string[];
+      sowFlags?: string[];
+    }>(res);
     if (!res.ok) {
-      const { error: e } = await res.json();
-      throw new Error(e || "Extraction failed");
+      throw new Error(body.error || "Extraction failed");
     }
-    return res.json();
+    return body;
   }
 
   function syncSupportingUploads(requiredAttachments: RequiredAttachment[]) {
@@ -236,6 +321,27 @@ function GenerateBOQTab() {
     );
   }
 
+  function appendOptionalSupportingUpload(picked: File) {
+    const newIndex = supportingUploads.length;
+    setSupportingUploads((current) => [
+      ...current,
+      {
+        requirement: {
+          type: "spec",
+          reason: "Optional supporting document",
+          required: false,
+        },
+        file: picked,
+        processedDoc: null,
+        processing: true,
+        error: null,
+      },
+    ]);
+    window.setTimeout(() => {
+      void handleSupportingFileSelection(newIndex, picked);
+    }, 0);
+  }
+
   const derivedBundle = useMemo(() => {
     if (!primaryDoc) return [];
     return [
@@ -243,8 +349,11 @@ function GenerateBOQTab() {
       ...supportingUploads
         .map((upload) => upload.processedDoc)
         .filter((doc): doc is ExtractedDoc => Boolean(doc)),
+      ...extraDocs
+        .map((extra) => extra.processedDoc)
+        .filter((doc): doc is ExtractedDoc => Boolean(doc)),
     ];
-  }, [primaryDoc, supportingUploads]);
+  }, [primaryDoc, supportingUploads, extraDocs]);
 
   useEffect(() => {
     setBundleDocs(derivedBundle);
@@ -256,6 +365,19 @@ function GenerateBOQTab() {
   async function handleSupportingFileSelection(index: number, picked: File | null) {
     if (!picked) return;
 
+    const fileSizeError = sizeErrorForDocument(picked, "supporting");
+    if (fileSizeError) {
+      setSupportingUploads((current) =>
+        current.map((upload, uploadIndex) =>
+          uploadIndex === index
+            ? { ...upload, file: picked, processing: false, error: fileSizeError, processedDoc: null }
+            : upload
+        )
+      );
+      setError(fileSizeError);
+      return;
+    }
+
     setError(null);
     setSupportingUploads((current) =>
       current.map((upload, uploadIndex) =>
@@ -266,7 +388,7 @@ function GenerateBOQTab() {
     );
 
     try {
-      const extracted = await extractSingleDocument(picked, 0);
+      const extracted = await extractSingleDocument(picked, 0, "supporting");
       let nextUploads: SupportingUpload[] = [];
       setSupportingUploads((current) => {
         nextUploads = current.map((upload, uploadIndex) =>
@@ -283,6 +405,8 @@ function GenerateBOQTab() {
                   document_type: upload.requirement.type,
                   text: extracted.text,
                   pages: extracted.pages ?? null,
+                  drawing_type: extracted.drawing_type ?? null,
+                  subject_name: extracted.subject_name ?? null,
                 },
               }
             : upload
@@ -310,8 +434,56 @@ function GenerateBOQTab() {
     }
   }
 
+  async function handleExtraDocAdd(picked: File) {
+    const id = `extra-${Date.now()}`;
+    setExtraDocs((current) => [...current, { id, file: picked, processing: true, error: null }]);
+    try {
+      const extracted = await extractSingleDocument(picked, 0, "supporting");
+      const docIndex = extraDocs.length; // used for document_id only
+      setExtraDocs((current) =>
+        current.map((extra) =>
+          extra.id === id
+            ? {
+                ...extra,
+                processing: false,
+                error: null,
+                processedDoc: {
+                  document_id: `extra-${id}`,
+                  name: picked.name,
+                  role: "supporting",
+                  document_type: "supporting_context",
+                  text: extracted.text,
+                  pages: extracted.pages ?? null,
+                  drawing_type: extracted.drawing_type ?? null,
+                  subject_name: extracted.subject_name ?? null,
+                },
+              }
+            : extra
+        )
+      );
+      void docIndex;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Extraction failed";
+      setExtraDocs((current) =>
+        current.map((extra) =>
+          extra.id === id ? { ...extra, processing: false, error: msg } : extra
+        )
+      );
+    }
+  }
+
+  function handleExtraDocRemove(id: string) {
+    setExtraDocs((current) => current.filter((extra) => extra.id !== id));
+  }
+
   async function handleExtract() {
     if (!file) return;
+    const fileSizeError = sizeErrorForDocument(file, "primary");
+    if (fileSizeError) {
+      setStage("error");
+      setError(fileSizeError);
+      return;
+    }
     setError(null);
     setSowWarning(null);
     setStage("extracting");
@@ -333,7 +505,7 @@ function GenerateBOQTab() {
           supportingDocs.push(upload.processedDoc);
           continue;
         }
-        const extracted = await extractSingleDocument(upload.file, 0);
+        const extracted = await extractSingleDocument(upload.file, 0, "supporting");
         supportingDocs.push({
           document_id: `supporting-${index + 1}`,
           name: upload.file.name,
@@ -341,6 +513,8 @@ function GenerateBOQTab() {
           document_type: upload.requirement.type,
           text: extracted.text,
           pages: extracted.pages ?? null,
+          drawing_type: extracted.drawing_type ?? null,
+          subject_name: extracted.subject_name ?? null,
         });
       }
       const nextPrimaryDoc: ExtractedDoc = {
@@ -378,17 +552,22 @@ function GenerateBOQTab() {
           error: null,
         }))
       );
+      const normalizedRequiredAttachments = requiredAttachments || [];
+      const supportingSlots = shouldBlockGeneration
+        ? normalizedRequiredAttachments
+        : normalizedRequiredAttachments.slice(0, 1);
+
       setClassification({
         documentType: documentType || null,
         confidence: typeof sowConfidence === "number" ? sowConfidence : null,
         shouldBlockGeneration: Boolean(shouldBlockGeneration),
-        requiredAttachments: requiredAttachments || [],
+        requiredAttachments: normalizedRequiredAttachments,
         sourceBundleStatus: sourceBundleStatus || "complete",
         positiveSignals: positiveSignals || [],
         negativeSignals: negativeSignals || [],
         flags: sowFlags || [],
       });
-      syncSupportingUploads(requiredAttachments || []);
+      syncSupportingUploads(supportingSlots);
       ph.capture("document_uploaded", {
         file_type: file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "docx",
         pages: p, is_sow: isSOWResult,
@@ -408,6 +587,10 @@ function GenerateBOQTab() {
 
   async function handleGenerate() {
     if (!file) return;
+    if (hasSupportingUploadInProgress) {
+      setError("Please wait for the supporting document to finish processing.");
+      return;
+    }
     if (needsAttachmentRecheck) {
       await handleExtract();
       return;
@@ -441,6 +624,7 @@ function GenerateBOQTab() {
           text,
           documents,
           suggest_rates: suggestRates,
+          rate_context: ctx,
           is_sow: isSOW,
           sow_warning: sowWarning,
           document_type: classification?.documentType,
@@ -467,40 +651,8 @@ function GenerateBOQTab() {
     if (remainingCredits > 0) {
       setStage("paying");
       setError(null);
-
-      try {
-        const res = await fetch("/api/unlock-boq", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ boq_id: boqId, use_credit: true }),
-        });
-
-        if (!res.ok) {
-          const body = (await res.json()) as { error?: string; remainingCredits?: number };
-          if (typeof body.remainingCredits === "number") {
-            setRemainingCredits(body.remainingCredits);
-          } else {
-            await refreshCredits();
-          }
-          throw new Error(body.error || "Could not unlock BOQ with credits");
-        }
-
-        const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
-        if (typeof body.remainingCredits === "number") {
-          setRemainingCredits(body.remainingCredits);
-        } else {
-          await refreshCredits();
-        }
-
-        clearGenerationDraftStorage();
-        router.push(body.boq_id ? `/boq/${body.boq_id}` : "/boq");
-        return;
-      } catch (err) {
-        setStage("preview");
-        const msg = err instanceof Error ? err.message : "Something went wrong";
-        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
-        return;
-      }
+      router.push(`/generating?boq_id=${encodeURIComponent(boqId)}&pay=credits&type=generate`);
+      return;
     }
 
     setStage("paying");
@@ -640,12 +792,7 @@ function GenerateBOQTab() {
                 <p className={`text-xs font-semibold ${classification.shouldBlockGeneration ? "text-yellow-200" : "text-green-200"}`}>
                   {classification.shouldBlockGeneration ? "Upload blocked" : "Document accepted"}
                 </p>
-                <p className="text-xs text-white/90">
-                  {sowWarning ||
-                    (hasOptionalSupportingDocs
-                      ? "You can continue with the SOW only."
-                      : "This document is ready for BOQ generation.")}
-                </p>
+                {sowWarning && <p className="text-xs text-white/90">{sowWarning}</p>}
               </div>
             </div>
 
@@ -654,15 +801,8 @@ function GenerateBOQTab() {
                 <p className="text-[11px] uppercase tracking-wide text-gray-300">
                   {classification.shouldBlockGeneration ? "Required attachments" : "Optional supporting documents"}
                 </p>
-                {!classification.shouldBlockGeneration && (
-                  <p className="text-[11px] text-gray-400">
-                    Only add these if you already have them and want a better result.
-                  </p>
-                )}
-                {(classification.shouldBlockGeneration
-                  ? classification.requiredAttachments
-                  : classification.requiredAttachments.slice(0, 1)
-                ).map((attachment, index) => {
+                {(classification.shouldBlockGeneration ? supportingUploads.slice(0, classification.requiredAttachments.length) : supportingUploads).map((upload, index) => {
+                  const attachment = upload.requirement;
                   const current = supportingUploads[index];
                   return (
                     <div key={`${attachment.type}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
@@ -684,9 +824,7 @@ function GenerateBOQTab() {
                           <p className="text-[11px] text-amber-200 mt-1">Processing attachment...</p>
                         )}
                         {current?.processedDoc && !current.processing && (
-                          <p className="text-[11px] text-green-300 mt-1">
-                            Added to source bundle as {current.processedDoc.document_id}
-                          </p>
+                          <p className="text-[11px] text-green-300 mt-1">Added</p>
                         )}
                         {current?.error && (
                           <p className="text-[11px] text-red-300 mt-1">{current.error}</p>
@@ -715,6 +853,71 @@ function GenerateBOQTab() {
                     </div>
                   );
                 })}
+                {!classification.shouldBlockGeneration && (
+                  <>
+                    <input
+                      ref={additionalSupportingInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.xlsx,.xls"
+                      className="hidden"
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0] ?? null;
+                        e.currentTarget.value = "";
+                        if (picked) appendOptionalSupportingUpload(picked);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => additionalSupportingInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-md border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-xs text-white"
+                    >
+                      Add another document
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {primaryDoc && (
+              <div className="space-y-2">
+                {extraDocs.map((extra) => (
+                  <div key={extra.id} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-white truncate">{extra.file.name}</p>
+                      {extra.processing && <p className="text-[11px] text-amber-200 mt-0.5">Processing...</p>}
+                      {extra.processedDoc && !extra.processing && <p className="text-[11px] text-green-300 mt-0.5">Added</p>}
+                      {extra.error && <p className="text-[11px] text-red-300 mt-0.5">{extra.error}</p>}
+                    </div>
+                    <button
+                      onClick={() => handleExtraDocRemove(extra.id)}
+                      className="text-xs text-gray-500 hover:text-gray-300 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {extraDocs.length < 5 && (
+                  <>
+                    <input
+                      type="file"
+                      accept=".pdf,.docx"
+                      className="hidden"
+                      id="extra-doc-input"
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0];
+                        if (picked) void handleExtraDocAdd(picked);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      onClick={() => document.getElementById("extra-doc-input")?.click()}
+                      className="w-full px-3 py-2 rounded-lg border border-dashed border-white/20 hover:border-white/40 text-xs text-gray-400 hover:text-white transition-colors"
+                    >
+                      + Add more documents
+                    </button>
+                    <p className="text-[10px] text-gray-500 text-center">PDF or Word · max 50 MB · drawings, specs, schedules</p>
+                  </>
+                )}
               </div>
             )}
 
@@ -722,8 +925,8 @@ function GenerateBOQTab() {
               <div>
                 <p className="text-[11px] text-gray-400 mt-2">
                   {processedSupportingCount > 0
-                    ? `${processedSupportingCount} supporting document${processedSupportingCount === 1 ? "" : "s"} added.`
-                    : "SOW ready for generation."}
+                    ? `${processedSupportingCount} supporting doc${processedSupportingCount === 1 ? "" : "s"} added.`
+                    : null}
                 </p>
               </div>
             )}
@@ -745,6 +948,7 @@ function GenerateBOQTab() {
               setIsSOW(null);
               setClassification(null);
               setSupportingUploads([]);
+              setExtraDocs([]);
               setBundleDocs([]);
             }}
           >
@@ -753,44 +957,100 @@ function GenerateBOQTab() {
         </div>
 
         {remainingCredits > 0 ? (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-white">Starter credits available</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Your starter credits apply first, so you can keep going before paid options are needed.
-                </p>
-              </div>
-              <CreditBadge remainingCredits={remainingCredits} />
-            </div>
+          <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+            <CreditBadge remainingCredits={remainingCredits} />
           </div>
         ) : null}
 
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 text-left space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-white font-semibold text-lg">BOQ Generation</p>
-              <p className="text-gray-400 text-sm mt-0.5">Start with credits, then pay based on project size</p>
-            </div>
-            <div className="text-right">
-              <p className="text-lg font-bold text-amber-400">From $20</p>
-              <p className="text-xs text-gray-500">1,000 starter credits</p>
+        <div className="space-y-3">
+
+          {/* Province */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <p className="text-xs font-medium text-white">Province</p>
+            <div className="flex flex-wrap gap-1.5">
+              {PROVINCES.map((p) => (
+                <button key={p} onClick={() => setCtx((c) => ({ ...c, province: p }))}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${ctx.province === p ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                  {p}
+                </button>
+              ))}
             </div>
           </div>
-          <ul className="space-y-2">
-            {[
-              "Structured BOQ with bill sections",
-              "Editable table - adjust quantities and descriptions",
-              "Download .xlsx in Southern African tender format",
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                </svg>
-                {item}
-              </li>
-            ))}
-          </ul>
+
+          {/* Project type */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <p className="text-xs font-medium text-white">Project type</p>
+            <div className="flex flex-wrap gap-1.5">
+              {PROJECT_TYPES.map(({ val, label }) => (
+                <button key={val} onClick={() => setCtx((c) => ({ ...c, projectType: val }))}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${ctx.projectType === val ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Accessibility */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
+            <p className="text-xs font-medium text-white">Site access</p>
+            <div className="flex flex-col gap-1.5">
+              {[
+                { val: "main_road", label: "Main road" },
+                { val: "gravel_road", label: "Gravel / secondary road" },
+                { val: "remote", label: "Remote / bush site" },
+              ].map(({ val, label }) => (
+                <button key={val} onClick={() => setCtx((c) => ({ ...c, accessibility: val }))}
+                  className={`flex items-center gap-2 px-3 py-2 rounded text-left transition-colors ${ctx.accessibility === val ? "bg-amber-400/15 border border-amber-400/40" : "bg-white/5 border border-white/10 hover:bg-white/10"}`}>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.accessibility === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-xs text-white">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Labour */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
+            <p className="text-xs font-medium text-white">Labour source</p>
+            <div className="flex flex-col gap-1.5">
+              {[
+                { val: "local_unskilled", label: "Mostly local unskilled" },
+                { val: "mixed", label: "Mix of skilled & unskilled" },
+                { val: "imported_skilled", label: "Imported / specialist trades" },
+              ].map(({ val, label }) => (
+                <button key={val} onClick={() => setCtx((c) => ({ ...c, labourSource: val }))}
+                  className={`flex items-center gap-2 px-3 py-2 rounded text-left transition-colors ${ctx.labourSource === val ? "bg-amber-400/15 border border-amber-400/40" : "bg-white/5 border border-white/10 hover:bg-white/10"}`}>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-xs text-white">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Margin */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <p className="text-xs font-medium text-white">Overhead & profit margin</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[10, 15, 20].map((pct) => (
+                <button key={pct}
+                  onClick={() => { setCtx((c) => ({ ...c, marginPct: pct })); setCustomMargin(false); }}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${ctx.marginPct === pct && !customMargin ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                  {pct}%
+                </button>
+              ))}
+              <button onClick={() => setCustomMargin(true)}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${customMargin ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"}`}>
+                Custom
+              </button>
+            </div>
+            {customMargin && (
+              <div className="flex items-center gap-2">
+                <input type="number" min={1} max={50} value={ctx.marginPct}
+                  onChange={(e) => setCtx((c) => ({ ...c, marginPct: Math.min(50, Math.max(1, Number(e.target.value) || 15)) }))}
+                  className="w-16 px-2 py-1.5 rounded bg-white/10 border border-white/20 text-white text-xs text-center focus:outline-none focus:border-amber-400/60" />
+                <span className="text-xs text-gray-400">%</span>
+              </div>
+            )}
+          </div>
         </div>
 
         <label className="flex items-start gap-3 cursor-pointer select-none group">
@@ -802,7 +1062,7 @@ function GenerateBOQTab() {
           </div>
           <div>
             <p className="text-sm text-white font-medium group-has-[:checked]:text-amber-400 transition-colors">Include AI rate estimates</p>
-            <p className="text-xs text-gray-500 mt-0.5">AI suggests typical ZMW rates based on the Zambian construction market. Review and adjust before use.</p>
+            <p className="text-xs text-gray-500 mt-0.5">AI suggests ZMW rates using the context above.</p>
           </div>
         </label>
 
@@ -812,6 +1072,7 @@ function GenerateBOQTab() {
           disabled={
             stage === "paying" ||
             stage === "generating" ||
+            hasSupportingUploadInProgress ||
             isSOW === false ||
             (classification?.shouldBlockGeneration && hasAllRequiredAttachments && !hasProcessedAllRequiredAttachments) ||
             Boolean(classification?.shouldBlockGeneration && !needsAttachmentRecheck)
@@ -822,12 +1083,10 @@ function GenerateBOQTab() {
           ) : primaryActionLabel}
         </button>
 
-        <p className="text-xs text-gray-600">Price is based on the estimated value of your BOQ. No charge until you review and confirm.</p>
-
         {stage === "generating" && (
           <div className="space-y-2">
             <Progress value={60} className="h-1.5 bg-white/10" />
-            <p className="text-xs text-gray-400">AI is analysing your Scope of Work… this takes about 30–60 seconds</p>
+            <p className="text-xs text-gray-400">Analysing scope… ~30–60 seconds</p>
           </div>
         )}
       </div>
@@ -836,12 +1095,6 @@ function GenerateBOQTab() {
 
   return (
     <>
-      <div className="text-center mb-8">
-        <p className="text-gray-400 text-sm leading-relaxed">
-          Upload a Scope of Work PDF or Word doc. Get a tender-ready
-          <br />Bill of Quantities in under 60 seconds.
-        </p>
-      </div>
 
       <div
         className={`relative rounded-xl border-2 border-dashed transition-colors cursor-pointer p-10 text-center
@@ -873,6 +1126,7 @@ function GenerateBOQTab() {
                   setIsSOW(null);
                   setClassification(null);
                   setSupportingUploads([]);
+                  setExtraDocs([]);
                   setBundleDocs([]);
                 }}>
                 Remove
@@ -886,7 +1140,7 @@ function GenerateBOQTab() {
             </div>
             <div>
               <p className="font-medium text-sm text-white">Drop your SOW here</p>
-              <p className="text-xs text-gray-500 mt-1">PDF or Word (.docx) · max 15 MB</p>
+              <p className="text-xs text-gray-500 mt-1">Main SOW: PDF or Word (.docx) · max 15 MB. Add drawings after the SOW · up to 50 MB.</p>
             </div>
           </div>
         )}
@@ -919,10 +1173,7 @@ function GenerateBOQTab() {
         {isProcessing ? (stage === "extracting" ? "Extracting…" : "Redirecting…") : "Continue →"}
       </button>
 
-      <p className="mt-8 text-center text-xs text-gray-600">
-        Supports civil, mechanical, and infrastructure SOW documents.
-        <br />Output matches standard Zambian tender BOQ format (ZMW).
-      </p>
+      <p className="mt-8 text-center text-xs text-gray-600">PDF or Word · ZMW · Zambian tender format</p>
     </>
   );
 }
@@ -940,9 +1191,9 @@ interface BOQPreview {
 
 interface RateContext {
   province: string;
+  projectType: string;
   accessibility: string;
   labourSource: string;
-  equipment: string;
   marginPct: number;
 }
 
@@ -951,11 +1202,20 @@ const PROVINCES = [
   "Western", "Luapula", "North-Western", "Muchinga", "Central",
 ];
 
+const PROJECT_TYPES = [
+  { val: "building", label: "Building" },
+  { val: "civil", label: "Civil works" },
+  { val: "water_sanitation", label: "Water & sanitation" },
+  { val: "road", label: "Road & pavement" },
+  { val: "mep", label: "MEP" },
+  { val: "mixed", label: "Mixed" },
+];
+
 const DEFAULT_CONTEXT: RateContext = {
   province: "Lusaka",
+  projectType: "building",
   accessibility: "main_road",
   labourSource: "mixed",
-  equipment: "contractor_owned",
   marginPct: 15,
 };
 
@@ -1040,41 +1300,8 @@ function RateBOQTab() {
     setError(null);
 
     if (remainingCredits > 0 && rateBoqId) {
-      try {
-        const res = await fetch("/api/rate-boq", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            boq_id: rateBoqId,
-            use_credit: true,
-            rate_context: ctx,
-          }),
-        });
-        if (!res.ok) {
-          const body = (await res.json()) as { error?: string; remainingCredits?: number };
-          if (typeof body.remainingCredits === "number") {
-            setRemainingCredits(body.remainingCredits);
-          } else {
-            await refreshCredits();
-          }
-          throw new Error(body.error || "Could not rate BOQ with credits");
-        }
-        const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
-        if (typeof body.remainingCredits === "number") {
-          setRemainingCredits(body.remainingCredits);
-        } else {
-          await refreshCredits();
-        }
-        localStorage.removeItem("boq_type");
-        localStorage.removeItem("boq_rate_context");
-        router.push(body.boq_id ? `/boq/${body.boq_id}` : "/boq");
-        return;
-      } catch (err) {
-        setStage("ready");
-        const msg = err instanceof Error ? err.message : "Something went wrong";
-        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
-        return;
-      }
+      router.push(`/generating?boq_id=${encodeURIComponent(rateBoqId)}&pay=credits&type=rate_boq`);
+      return;
     }
 
     if (PAYMENT_MODE !== "stripe") {
@@ -1162,16 +1389,13 @@ function RateBOQTab() {
             </svg>
             {preview?.totalItems} items · {preview?.missingRateCount} missing rates
           </div>
-          <h2 className="text-xl font-bold text-white">Tell us about the project</h2>
-          <p className="text-xs text-gray-400 mt-1">
-            These 5 questions help the AI calibrate rates to your actual site conditions.
-          </p>
+          <h2 className="text-xl font-bold text-white">Project context</h2>
         </div>
 
         <div className="space-y-4">
           {/* Q1 Province */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">1. Which province is the project in?</p>
+            <p className="text-sm font-medium text-white">Province</p>
             <div className="flex flex-wrap gap-2">
               {PROVINCES.map((p) => (
                 <button key={p}
@@ -1187,85 +1411,71 @@ function RateBOQTab() {
             </div>
           </div>
 
-          {/* Q2 Site accessibility */}
+          {/* Q2 Project type */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">2. How accessible is the site?</p>
-            <p className="text-xs text-gray-500">This affects transport premiums on materials.</p>
+            <p className="text-sm font-medium text-white">Project type</p>
+            <div className="flex flex-wrap gap-2">
+              {PROJECT_TYPES.map(({ val, label }) => (
+                <button key={val}
+                  onClick={() => setCtx((c) => ({ ...c, projectType: val }))}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    ctx.projectType === val
+                      ? "bg-amber-400 text-black"
+                      : "bg-white/10 text-gray-300 hover:bg-white/15"
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Q3 Site accessibility */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
+            <p className="text-sm font-medium text-white">Site access</p>
             <div className="space-y-2 mt-1">
               {[
-                { val: "main_road", label: "Main road access", sub: "Standard transport costs" },
-                { val: "gravel_road", label: "Gravel / secondary road", sub: "+10–20% transport premium" },
-                { val: "remote", label: "Remote or bush site", sub: "+25–40% transport premium" },
-              ].map(({ val, label, sub }) => (
+                { val: "main_road", label: "Main road" },
+                { val: "gravel_road", label: "Gravel / secondary road" },
+                { val: "remote", label: "Remote / bush site" },
+              ].map(({ val, label }) => (
                 <button key={val} onClick={() => setCtx((c) => ({ ...c, accessibility: val }))}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
                     ctx.accessibility === val
                       ? "bg-amber-400/15 border border-amber-400/40"
                       : "bg-white/5 border border-white/10 hover:bg-white/10"
                   }`}>
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.accessibility === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
-                  <span>
-                    <span className="text-sm text-white block">{label}</span>
-                    <span className="text-xs text-gray-400">{sub}</span>
-                  </span>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.accessibility === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-sm text-white">{label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Q3 Labour */}
+          {/* Labour */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">3. What&apos;s the expected labour source?</p>
+            <p className="text-sm font-medium text-white">Labour source</p>
             <div className="space-y-2 mt-1">
               {[
-                { val: "local_unskilled", label: "Mostly local unskilled labour", sub: "Lower labour rates, minimal mobilisation" },
-                { val: "mixed", label: "Mix of skilled & unskilled", sub: "Mid-range rates — most common scenario" },
-                { val: "imported_skilled", label: "Mostly imported / specialist trades", sub: "Higher rates + accommodation & mobilisation" },
-              ].map(({ val, label, sub }) => (
+                { val: "local_unskilled", label: "Mostly local unskilled" },
+                { val: "mixed", label: "Mix of skilled & unskilled" },
+                { val: "imported_skilled", label: "Imported / specialist trades" },
+              ].map(({ val, label }) => (
                 <button key={val} onClick={() => setCtx((c) => ({ ...c, labourSource: val }))}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
                     ctx.labourSource === val
                       ? "bg-amber-400/15 border border-amber-400/40"
                       : "bg-white/5 border border-white/10 hover:bg-white/10"
                   }`}>
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
-                  <span>
-                    <span className="text-sm text-white block">{label}</span>
-                    <span className="text-xs text-gray-400">{sub}</span>
-                  </span>
+                  <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${ctx.labourSource === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
+                  <span className="text-sm text-white">{label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Q4 Equipment */}
+          {/* Margin */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">4. How will plant & equipment be sourced?</p>
-            <div className="space-y-2 mt-1">
-              {[
-                { val: "contractor_owned", label: "Contractor owns most equipment", sub: "No external hire premium" },
-                { val: "mostly_hired", label: "Mostly hired in", sub: "Include plant hire margin in rates" },
-              ].map(({ val, label, sub }) => (
-                <button key={val} onClick={() => setCtx((c) => ({ ...c, equipment: val }))}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${
-                    ctx.equipment === val
-                      ? "bg-amber-400/15 border border-amber-400/40"
-                      : "bg-white/5 border border-white/10 hover:bg-white/10"
-                  }`}>
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ctx.equipment === val ? "border-amber-400 bg-amber-400" : "border-gray-500"}`} />
-                  <span>
-                    <span className="text-sm text-white block">{label}</span>
-                    <span className="text-xs text-gray-400">{sub}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Q5 Margin */}
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
-            <p className="text-sm font-medium text-white">5. Target overhead & profit margin</p>
-            <p className="text-xs text-gray-500">Applied on top of base construction rates.</p>
+            <p className="text-sm font-medium text-white">Overhead & profit margin</p>
             <div className="flex flex-wrap gap-2 mt-1">
               {[10, 15, 20].map((pct) => (
                 <button key={pct}
@@ -1304,7 +1514,7 @@ function RateBOQTab() {
         <button
           onClick={handleQuestionsSubmit}
           className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors">
-          Continue to unlock options -&gt;
+          Continue →
         </button>
       </div>
     );
@@ -1341,56 +1551,10 @@ function RateBOQTab() {
         </div>
 
         {remainingCredits > 0 ? (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-white">Starter credits available</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Your starter credits apply first, so you can keep going before paid options are needed.
-                </p>
-              </div>
-              <CreditBadge remainingCredits={remainingCredits} />
-            </div>
+          <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+            <CreditBadge remainingCredits={remainingCredits} />
           </div>
         ) : null}
-
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 text-left space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-white font-semibold text-lg">BOQ Rate Filling</p>
-              <p className="text-gray-400 text-sm mt-0.5">
-                {remainingCredits > 0
-                  ? "Use starter credits now"
-                  : PAYMENT_MODE !== "stripe"
-                    ? "Request manual payment and wait for approval"
-                    : "One-time instant delivery"}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-amber-400">
-                {remainingCredits > 0 ? "Credits" : `$${(rateAmountCents / 100).toFixed(0)}`}
-              </p>
-              <p className="text-xs text-gray-500">
-                {remainingCredits > 0 ? `${remainingCredits.toLocaleString()} credits left` : "USD"}
-              </p>
-            </div>
-          </div>
-          <ul className="space-y-2">
-            {[
-              `AI fills rates for ${preview?.missingRateCount} items calibrated to ${ctx.province} conditions`,
-              "Download your original Excel file with rates added in-place",
-              "Or download a freshly formatted BOQ in our house style",
-              "Editable in the BOQ editor - review and adjust before exporting",
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                </svg>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
 
         {remainingCredits > 0 || PAYMENT_MODE === "stripe" ? (
           <button
@@ -1399,9 +1563,9 @@ function RateBOQTab() {
             {stage === "paying" ? (
               <>
                 <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
-                {remainingCredits > 0 ? "Unlocking with credits..." : "Opening secure checkout..."}
+                {remainingCredits > 0 ? "Unlocking…" : "Opening checkout…"}
               </>
-            ) : remainingCredits > 0 ? "Use Credits & Add Rates ->" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates ->`}
+            ) : remainingCredits > 0 ? "Unlock with Credits →" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates →`}
           </button>
         ) : (
           <ManualPaymentOptions
@@ -1449,19 +1613,11 @@ function RateBOQTab() {
           />
         )}
 
-        <p className="text-xs text-gray-600">
-          {remainingCredits > 0
-            ? `Your starter credits apply first. ${PAYMENT_MODE === "stripe" ? "Stripe checkout" : PAYMENT_MODE === "hybrid" ? "manual payment or Stripe" : "manual payment options"} only appear after those credits are used.`
-            : PAYMENT_MODE !== "stripe"
-              ? "Manual payment is confirmed by our team before this rated BOQ is unlocked."
-              : "Secure payment via Stripe. You will be redirected back after payment."}
-        </p>
-
         {stage === "paying" && (remainingCredits > 0 || PAYMENT_MODE === "stripe" || PAYMENT_MODE === "hybrid") && (
           <div className="space-y-2">
             <Progress value={92} className="h-1.5 bg-white/10" />
             <p className="text-xs text-gray-400">
-              {remainingCredits > 0 ? "Unlocking your rated BOQ..." : "Redirecting to Stripe checkout..."}
+              {remainingCredits > 0 ? "Unlocking…" : "Redirecting to Stripe…"}
             </p>
           </div>
         )}
@@ -1472,12 +1628,6 @@ function RateBOQTab() {
   // Upload screen
   return (
     <>
-      <div className="text-center mb-8">
-        <p className="text-gray-400 text-sm leading-relaxed">
-          Upload an Excel BOQ that&apos;s missing rates.
-          <br />AI fills rates using Southern African construction market context.
-        </p>
-      </div>
 
       <div
         className={`relative rounded-xl border-2 border-dashed transition-colors cursor-pointer p-10 text-center
@@ -1543,10 +1693,7 @@ function RateBOQTab() {
         ) : "Validate & Continue ->"}
       </button>
 
-      <p className="mt-8 text-center text-xs text-gray-600">
-        Works with any BOQ structure. Items, quantities, and descriptions are preserved verbatim.
-        <br />Rates are calibrated to your site location, labour, and margin.
-      </p>
+      <p className="mt-8 text-center text-xs text-gray-600">Excel (.xlsx) · rates calibrated to your location</p>
     </>
   );
 }
