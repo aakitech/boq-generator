@@ -11,10 +11,6 @@ export interface ProcessedDoc {
   pages: number | null;
   drawing_type?: string | null;
   subject_name?: string | null;
-  isSOW?: boolean;
-  sowWarning?: string | null;
-  sowConfidence?: number | null;
-  shouldBlockGeneration?: boolean;
 }
 
 export interface UploadedDoc {
@@ -139,13 +135,10 @@ export function DocumentList({ docs, onAdd, onRemove, disabled }: Props) {
     );
   }
 
-  // First doc without an error is the effective primary
-  const primaryIndex = docs.findIndex((d) => !d.error);
-
   return (
     <div className="space-y-2">
       <div className="space-y-1.5">
-        {docs.map((doc, i) => (
+        {docs.map((doc) => (
           <div
             key={doc.id}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/10"
@@ -154,12 +147,7 @@ export function DocumentList({ docs, onAdd, onRemove, disabled }: Props) {
               <FileIcon className="w-3.5 h-3.5 text-amber-400" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                {i === primaryIndex && (
-                  <span className="text-[10px] font-medium text-amber-400/70 uppercase tracking-wide shrink-0">Primary</span>
-                )}
-                <p className="text-xs text-white truncate">{doc.file.name}</p>
-              </div>
+              <p className="text-xs text-white truncate">{doc.file.name}</p>
               <div className="text-[11px] mt-0.5">
                 <DocSubline doc={doc} />
               </div>

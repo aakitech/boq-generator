@@ -10,7 +10,6 @@ import ManualPaymentOptions from "@/components/ManualPaymentOptions";
 import { useCredits } from "@/components/CreditsProvider";
 import { DocumentList, type UploadedDoc, type ProcessedDoc } from "./DocumentList";
 import { RateAssumptions, DEFAULT_CONTEXT, type RateContext } from "./RateAssumptions";
-import type { BOQDocumentType, SourceBundleStatus } from "@/lib/types";
 
 type Stage = "idle" | "extracting" | "generating" | "preview" | "paying" | "error";
 
@@ -47,10 +46,6 @@ export default function GenerateBOQTab() {
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
   const [ctx, setCtx] = useState<RateContext>(DEFAULT_CONTEXT);
 
-  // Classification state from first doc extraction
-  const [sowWarning, setSowWarning] = useState<string | null>(null);
-  const [shouldBlockGeneration, setShouldBlockGeneration] = useState(false);
-
   // Preview / payment state
   const [boqId, setBoqId] = useState<string | null>(null);
   const [boqPreview, setBoqPreview] = useState<{
@@ -67,7 +62,7 @@ export default function GenerateBOQTab() {
   // Derived
   const anyProcessing = uploadedDocs.some((d) => d.processing);
   const readyDocs = uploadedDocs.filter((d) => d.processedDoc);
-  const canGenerate = readyDocs.length > 0 && !anyProcessing && !shouldBlockGeneration;
+  const canGenerate = readyDocs.length > 0 && !anyProcessing;
 
   // Keep bundle in localStorage in sync
   const bundleDocs = useMemo((): ProcessedDoc[] => {
@@ -84,34 +79,19 @@ export default function GenerateBOQTab() {
     }
   }, [bundleDocs]);
 
-  async function extractDoc(
-    file: File,
-    role: "primary" | "supporting"
-  ): Promise<{
+  async function extractDoc(file: File): Promise<{
     text: string;
     pages: number | null;
-    isSOW?: boolean;
-    sowWarning?: string | null;
-    sowConfidence?: number | null;
-    documentType?: BOQDocumentType | null;
-    shouldBlockGeneration?: boolean;
-    requiredAttachments?: unknown[];
-    sourceBundleStatus?: SourceBundleStatus;
-    positiveSignals?: string[];
-    negativeSignals?: string[];
-    sowFlags?: string[];
     drawing_type?: string | null;
     subject_name?: string | null;
   }> {
-    // Always allow up to 50 MB client-side — server enforces the 15 MB limit for primary docs
-    // and returns a clear error message. Drawings are primary candidates too.
     if (file.size > 50 * 1024 * 1024) {
       throw new Error("File too large. Maximum file size is 50 MB.");
     }
     const form = new FormData();
     form.append("file", file);
     form.append("supporting_docs_count", "0");
-    form.append("role", role);
+    form.append("role", "supporting");
     const res = await fetch("/api/extract", { method: "POST", body: form });
     if (!res.ok) {
       const { error: e } = await res.json();
@@ -122,7 +102,6 @@ export default function GenerateBOQTab() {
 
   async function handleAddFiles(files: File[]) {
     if (files.length === 0) return;
-    const isPrimary = uploadedDocs.length === 0;
 
     const newDocs: UploadedDoc[] = files.map((f, i) => ({
       id: `doc-${Date.now()}-${i}`,
@@ -136,60 +115,30 @@ export default function GenerateBOQTab() {
     setError(null);
 
     await Promise.all(
-      newDocs.map(async (doc, i) => {
-        const role = isPrimary && i === 0 ? "primary" : "supporting";
+      newDocs.map(async (doc) => {
         try {
-          const result = await extractDoc(doc.file, role);
-
-          // Update classification from first doc
-          if (role === "primary") {
-            setSowWarning(result.sowWarning ?? null);
-            setShouldBlockGeneration(Boolean(result.shouldBlockGeneration));
-            localStorage.setItem("boq_is_sow", result.isSOW ? "1" : "0");
-            localStorage.setItem("boq_sow_warning", result.sowWarning ?? "");
-            localStorage.setItem("boq_sow_confidence", result.sowConfidence != null ? String(result.sowConfidence) : "");
-            localStorage.setItem("boq_document_type", result.documentType ?? "");
-            localStorage.setItem("boq_should_block_generation", result.shouldBlockGeneration ? "1" : "0");
-            localStorage.setItem("boq_positive_signals", JSON.stringify(result.positiveSignals ?? []));
-            localStorage.setItem("boq_negative_signals", JSON.stringify(result.negativeSignals ?? []));
-            localStorage.setItem("boq_sow_flags", JSON.stringify(result.sowFlags ?? []));
-          }
-
+          const result = await extractDoc(doc.file);
           const processedDoc: ProcessedDoc = {
             document_id: doc.id,
             name: doc.file.name,
-            role,
-            document_type: result.documentType ?? (role === "primary" ? "construction_sow" : "supporting_context"),
+            role: "supporting",
+            document_type: "supporting_context",
             text: result.text,
             pages: result.pages ?? null,
             drawing_type: result.drawing_type ?? null,
             subject_name: result.subject_name ?? null,
-            isSOW: result.isSOW,
-            sowWarning: result.sowWarning,
-            sowConfidence: result.sowConfidence,
-            shouldBlockGeneration: result.shouldBlockGeneration,
           };
-
           setUploadedDocs((current) =>
-            current.map((d) =>
-              d.id === doc.id
-                ? { ...d, processing: false, error: null, processedDoc }
-                : d
-            )
+            current.map((d) => d.id === doc.id ? { ...d, processing: false, error: null, processedDoc } : d)
           );
-
           ph.capture("document_uploaded", {
-            role,
             file_type: doc.file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "docx",
             pages: result.pages,
-            is_sow: result.isSOW,
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Extraction failed";
           setUploadedDocs((current) =>
-            current.map((d) =>
-              d.id === doc.id ? { ...d, processing: false, error: msg } : d
-            )
+            current.map((d) => d.id === doc.id ? { ...d, processing: false, error: msg } : d)
           );
         }
       })
@@ -199,17 +148,7 @@ export default function GenerateBOQTab() {
   function handleRemoveDoc(id: string) {
     setUploadedDocs((current) => {
       const next = current.filter((d) => d.id !== id);
-      // If we removed the first doc, re-derive classification from the new first
-      if (current[0]?.id === id && next.length > 0 && next[0].processedDoc) {
-        const p = next[0].processedDoc;
-        setSowWarning(p.sowWarning ?? null);
-        setShouldBlockGeneration(Boolean(p.shouldBlockGeneration));
-      }
-      if (next.length === 0) {
-        setSowWarning(null);
-        setShouldBlockGeneration(false);
-        setError(null);
-      }
+      if (next.length === 0) setError(null);
       return next;
     });
   }
@@ -388,20 +327,6 @@ export default function GenerateBOQTab() {
         onRemove={handleRemoveDoc}
         disabled={isLocked}
       />
-
-      {/* SOW warning — shown but doesn't block */}
-      {sowWarning && !shouldBlockGeneration && (
-        <div className="px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-300 text-xs">
-          {sowWarning}
-        </div>
-      )}
-
-      {/* Hard block */}
-      {shouldBlockGeneration && (
-        <div className="px-4 py-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-300 text-xs">
-          This document can't be used to generate a BOQ. Please upload a construction scope of work.
-        </div>
-      )}
 
       {/* Error */}
       {error && (

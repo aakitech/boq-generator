@@ -98,40 +98,32 @@ export async function POST(req: NextRequest) {
       should_block_generation?: boolean;
     };
 
-    const primaryDocuments =
-      (documents?.filter((doc) => doc.role === "primary") ?? []).length > 0
-        ? documents!.filter((doc) => doc.role === "primary")
+    const allDocuments: GenerationInputDocument[] =
+      Array.isArray(documents) && documents.length > 0
+        ? documents
         : typeof text === "string"
-          ? [
-              {
-                document_id: "primary",
-                name: "Primary SOW",
-                role: "primary" as const,
-                document_type: "construction_sow" as const,
-                text,
-                pages: null,
-              },
-            ]
+          ? [{ document_id: "doc-1", name: "Document", role: "supporting" as const, document_type: "construction_sow" as const, text, pages: null }]
           : [];
 
-    if (primaryDocuments.length === 0) {
-      return NextResponse.json({ error: "primary document text is required" }, { status: 400 });
+    if (allDocuments.length === 0) {
+      return NextResponse.json({ error: "At least one document is required" }, { status: 400 });
     }
 
-    const hasUsableText = primaryDocuments.some((d) => typeof d.text === "string" && d.text.length >= 50);
+    const hasUsableText = allDocuments.some((d) => typeof d.text === "string" && d.text.length >= 50);
     if (!hasUsableText) {
       return NextResponse.json(
-        { error: "Text too short — could not extract meaningful content from PDF" },
+        { error: "Could not extract meaningful content from the uploaded documents" },
         { status: 400 }
       );
     }
 
-    // Concatenate primary docs for SOW validation (up to 5000 chars each)
-    const validationText = primaryDocuments
+    // Use first doc for SOW validation — it's typically the SoW in the flat model
+    const validationText = allDocuments
+      .slice(0, 1)
       .map((d) => d.text.slice(0, 5000))
       .join("\n\n");
 
-    const supportingDocsCount = (documents ?? []).filter((doc) => doc.role === "supporting").length;
+    const supportingDocsCount = allDocuments.length - 1;
     const usageCollector: GeminiUsageCollector = { entries: [] };
 
     const validation = await validateSOW(validationText, {
@@ -154,7 +146,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Truncate to ~80k chars to stay within token limits
-    const truncatedDocuments = (documents ?? primaryDocuments).map((doc) => ({
+    const truncatedDocuments = allDocuments.map((doc) => ({
       ...doc,
       text:
         doc.text.length > 80000
