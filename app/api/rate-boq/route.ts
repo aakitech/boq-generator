@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
     // Parse the original workbook deterministically, then fill only missing rates.
     const arrayBuffer = await fileData.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const workbookBoq = extractWorkbookBOQ(buffer, {
+    const workbookBoq = await extractWorkbookBOQ(buffer, {
       rateColumnHeader: rateColHeader || null,
       amountColumnHeader: amountColHeader || null,
     });

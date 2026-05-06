@@ -146,7 +146,7 @@ export async function POST(
     }
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
-    const workbookBoq = extractWorkbookBOQ(buffer, {
+    const workbookBoq = await extractWorkbookBOQ(buffer, {
       rateColumnHeader: boqRow.rate_col_header ?? null,
       amountColumnHeader: boqRow.amount_col_header ?? null,
     });

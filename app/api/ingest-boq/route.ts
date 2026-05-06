@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     // Deterministic workbook inspection for existing BOQ uploads
     let workbookBoq;
     try {
-      workbookBoq = extractWorkbookBOQ(buffer);
+      workbookBoq = await extractWorkbookBOQ(buffer);
     } catch {
       return NextResponse.json(
         { error: "Could not read the Excel file. Please check it is not password-protected or corrupted." },

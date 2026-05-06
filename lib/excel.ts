@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type {
   BOQBill,
   BOQDocument,
@@ -6,25 +6,6 @@ import type {
   BOQWorkbookPreservation,
   BOQWorkbookSheetStat,
 } from "./types";
-
-type CellStyle = {
-  font?: { bold?: boolean; sz?: number; name?: string; color?: { rgb: string } };
-  fill?: { fgColor: { rgb: string } };
-  alignment?: { horizontal?: string; vertical?: string; wrapText?: boolean };
-  border?: {
-    top?: { style: string; color: { rgb: string } };
-    bottom?: { style: string; color: { rgb: string } };
-    left?: { style: string; color: { rgb: string } };
-    right?: { style: string; color: { rgb: string } };
-  };
-  numFmt?: string;
-};
-
-type Cell = {
-  v: string | number | null;
-  t: "s" | "n";
-  s?: CellStyle;
-};
 
 type WorkbookColumnMap = {
   itemNoCol: number;
@@ -57,10 +38,6 @@ type SheetExtractionResult = {
   bills: BOQBill[];
   stats: BOQWorkbookSheetStat;
 };
-
-function cell(v: string | number | null, s?: CellStyle): Cell {
-  return { v, t: typeof v === "number" ? "n" : "s", s };
-}
 
 function normalizeText(value: unknown): string {
   return String(value ?? "")
@@ -148,6 +125,47 @@ function looksLikeSummaryRow(description: string): boolean {
   return /total|summary|carried to/i.test(description);
 }
 
+async function loadWorkbook(buffer: Buffer): Promise<ExcelJS.Workbook> {
+  const workbook = new ExcelJS.Workbook();
+  const load = workbook.xlsx.load.bind(workbook.xlsx) as unknown as (data: Uint8Array) => Promise<ExcelJS.Workbook>;
+  await load(new Uint8Array(buffer));
+  return workbook;
+}
+
+function excelJsCellValue(cell: ExcelJS.Cell): unknown {
+  const value = cell.value;
+  if (value && typeof value === "object") {
+    if ("richText" in value && Array.isArray(value.richText)) {
+      return value.richText.map((part) => part.text).join("");
+    }
+    if ("text" in value) return value.text;
+    if ("result" in value) return value.result;
+  }
+  return value;
+}
+
+function excelJsRowToArray(row: ExcelJS.Row, columnCount: number): unknown[] {
+  const values: unknown[] = [];
+  for (let col = 1; col <= columnCount; col += 1) {
+    values.push(excelJsCellValue(row.getCell(col)));
+  }
+  return values;
+}
+
+function excelJsWorksheetToRows(ws: ExcelJS.Worksheet): unknown[][] {
+  const columnCount = Math.max(ws.actualColumnCount, ws.columnCount, 20);
+  const rows: unknown[][] = [];
+  for (let rowIndex = 1; rowIndex <= ws.rowCount; rowIndex += 1) {
+    rows.push(excelJsRowToArray(ws.getRow(rowIndex), columnCount));
+  }
+  return rows;
+}
+
+function excelJsCellHasFormula(cell: ExcelJS.Cell): boolean {
+  const value = cell.value;
+  return Boolean(value && typeof value === "object" && "formula" in value);
+}
+
 function inferWorkbookMetadata(rows: unknown[][]): Pick<BOQDocument, "project" | "location" | "prepared_by" | "date"> {
   const defaults = {
     project: "Uploaded BOQ",
@@ -217,11 +235,10 @@ function sheetIgnoredReason(stats: BOQWorkbookSheetStat, bills: BOQBill[]): BOQW
 
 function extractSheetBOQ(
   sheetName: string,
-  ws: XLSX.WorkSheet,
+  ws: ExcelJS.Worksheet,
   options: WorkbookExtractionOptions = {}
 ): SheetExtractionResult {
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
-  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+  const rows = excelJsWorksheetToRows(ws);
 
   let currentColumns: WorkbookColumnMap | null = null;
   let currentBillTitle = "Front Matter";
@@ -350,8 +367,8 @@ function extractSheetBOQ(
 
   const stats: BOQWorkbookSheetStat = {
     sheet_name: sheetName,
-    source_row_count: range.e.r + 1,
-    source_col_count: range.e.c + 1,
+    source_row_count: ws.rowCount,
+    source_col_count: Math.max(ws.actualColumnCount, ws.columnCount),
     mapped_item_rows: mappedItemRows,
     repeated_header_count: repeatedHeaderCount,
     preserved_summary_rows: preservedSummaryRows,
@@ -369,12 +386,12 @@ function extractSheetBOQ(
   };
 }
 
-export function extractWorkbookBOQ(
+export async function extractWorkbookBOQ(
   buffer: Buffer,
   options: WorkbookExtractionOptions = {}
-): BOQDocument {
-  const wb = XLSX.read(buffer, { type: "buffer", cellFormula: true, cellStyles: true });
-  const sheetNames = wb.SheetNames;
+): Promise<BOQDocument> {
+  const wb = await loadWorkbook(buffer);
+  const sheetNames = wb.worksheets.map((ws) => ws.name);
   if (sheetNames.length === 0) {
     return {
       project: "Uploaded BOQ",
@@ -391,10 +408,10 @@ export function extractWorkbookBOQ(
   const bills: BOQBill[] = [];
 
   for (const sheetName of sheetNames) {
-    const ws = wb.Sheets[sheetName];
+    const ws = wb.getWorksheet(sheetName);
     if (!ws) continue;
 
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+    const rows = excelJsWorksheetToRows(ws);
     sheetMetadata.push(inferWorkbookMetadata(rows));
 
     const { bills: sheetBills, stats } = extractSheetBOQ(sheetName, ws, options);
@@ -443,515 +460,10 @@ export function extractWorkbookBOQ(
   };
 }
 
-const COLORS = {
-  header_bg: "FFFFFF",
-  bill_bg: "E5E7EB",
-  subheader_bg: "F3F4F6",
-  total_bg: "E5E7EB",
-  white: "FFFFFF",
-  black: "111111",
-  light_gray: "F9FAFB",
-  border: "D1D5DB",
-  dark_border: "6B7280",
-};
-
-const borderThin = (color = COLORS.border) => ({
-  top: { style: "thin", color: { rgb: color } },
-  bottom: { style: "thin", color: { rgb: color } },
-  left: { style: "thin", color: { rgb: color } },
-  right: { style: "thin", color: { rgb: color } },
-});
-
-const borderMedium = (color = COLORS.dark_border) => ({
-  top: { style: "medium", color: { rgb: color } },
-  bottom: { style: "medium", color: { rgb: color } },
-  left: { style: "medium", color: { rgb: color } },
-  right: { style: "medium", color: { rgb: color } },
-});
-
-const STANDARD_PREAMBLES = [
-  {
-    no: "i",
-    text: "A contractor shall familiarise himself with the works as no claims, due to failure to understand the scope of works shall be accepted",
-  },
-  {
-    no: "ii",
-    text: "Contractor shall allow in his rates the price of materials, transportation, plant, equipment, personnel and any other services required during execution of works",
-  },
-  {
-    no: "iii",
-    text: "All rates must include the supply and installation of new items/materials",
-  },
-  {
-    no: "iv",
-    text: "Where there is a discrepancy between the drawings and BOQ, consult the Engineer or other authorised client's site representative",
-  },
-  {
-    no: "v",
-    text: "The net quantities in the BOQ shall not be used for the purpose of ordering materials. All measurements must be confirmed prior to procurement of materials",
-  },
-  {
-    no: "vi",
-    text: "Samples of materials to be availed to the Engineer for approval prior to procurement; as applicable to the project",
-  },
-  {
-    no: "vii",
-    text: "Contractor shall provide signs and safety barrier tapes to be erected at site and to ensure good housekeeping at all times",
-  },
-  {
-    no: "viii",
-    text: "The contractor shall provide all required PPE i.e. helmets, gloves, safety boots, eye goggles, dust mask, work suit, etc. for his workmanship",
-  },
-  {
-    no: "ix",
-    text: "The contractor will be held responsible for any loss or damage of existing works",
-  },
-  {
-    no: "x",
-    text: "During the execution of works, site security will be the responsibility of the contractor",
-  },
-  {
-    no: "xi",
-    text: "Before handover, the contractor must clean up and dump the waste/debris to designated dump site",
-  },
-  {
-    no: "xii",
-    text: "The contractor is to make good disturbed works by all trades before handover",
-  },
-  {
-    no: "xiii",
-    text: "Unless indicated, a Contractor shall supply all materials, labour and equipment",
-  },
-  {
-    no: "xiv",
-    text: "The Contractor is to carefully read and understand the scope/BOQ as any cost that will arise from failure to understand the scope will fall on the contractor",
-  },
-];
-
-function sanitizeSheetName(name: string): string {
-  // Excel sheet name: max 31 chars, no : \ / ? * [ ]
-  return name
-    .replace(/[:\\/?*[\]]/g, "")
-    .substring(0, 31)
-    .trim() || "BOQ";
-}
-
-function unresolvedPlaceholder(item: BOQItem): string {
-  if (item.note === "Incl") return "Incl";
-  if (item.qty === null && item.rate === null) return "TO BE COMPLETED";
-  return "";
-}
-
-export function generateBOQExcel(boq: BOQDocument): Buffer {
-  const wb = XLSX.utils.book_new();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ws: { [key: string]: any } = {};
-  const merges: XLSX.Range[] = [];
-  const rowHeights: Array<{ hpt: number }> = [];
-
-  let row = 1; // 1-indexed
-
-  function setCell(r: number, c: number, v: string | number | null, s?: CellStyle) {
-    const ref = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 });
-    ws[ref] = cell(v, s);
-  }
-
-  function styleRange(r1: number, c1: number, r2: number, c2: number, s: CellStyle) {
-    for (let r = r1; r <= r2; r += 1) {
-      for (let c = c1; c <= c2; c += 1) {
-        const ref = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 });
-        const existing = ws[ref];
-        if (existing) {
-          existing.s = s;
-        } else {
-          ws[ref] = cell("", s);
-        }
-      }
-    }
-  }
-
-  function merge(r1: number, c1: number, r2: number, c2: number) {
-    merges.push({ s: { r: r1 - 1, c: c1 - 1 }, e: { r: r2 - 1, c: c2 - 1 } });
-  }
-
-  function setRowHeight(r: number, hpt: number) {
-    rowHeights[r - 1] = { hpt };
-  }
-
-  function blankRow() {
-    row++;
-  }
-
-  // ─── METADATA HEADER ─────────────────────────────────────────────────────
-  const titleStyle: CellStyle = {
-    font: { bold: true, sz: 16, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "center", vertical: "center" },
-  };
-  const metaLabelStyle: CellStyle = {
-    font: { bold: true, sz: 11, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "center", vertical: "center" },
-  };
-  const metaValueStyle: CellStyle = {
-    font: { bold: true, sz: 12, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
-  };
-
-  blankRow();
-  setCell(row, 2, "BILL OF QUANTITIES", titleStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, titleStyle);
-  setRowHeight(row, 24);
-  row++;
-
-  setCell(row, 2, "FOR", metaLabelStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, metaLabelStyle);
-  setRowHeight(row, 18);
-  row++;
-
-  const projectTitleStyle: CellStyle = {
-    ...metaValueStyle,
-    font: { ...metaValueStyle.font, sz: 13, bold: true },
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
-  };
-  setCell(row, 2, boq.project.toUpperCase(), projectTitleStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, projectTitleStyle);
-  setRowHeight(row, 22);
-  row++;
-
-  blankRow();
-
-  // ─── COLUMN HEADERS (top-level, for preambles section) ───────────────────
-  const colHeaderStyle: CellStyle = {
-    font: { bold: true, sz: 11, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: borderThin(),
-  };
-  const headers = ["ITEM", "DESCRIPTION", "UNIT", "QTY", "RATE", "AMOUNT"];
-  headers.forEach((h, i) => setCell(row, i + 1, h, colHeaderStyle));
-  setRowHeight(row, 20);
-  row++;
-
-  blankRow();
-
-  // ─── GENERAL PREAMBLES ────────────────────────────────────────────────────
-  const preambleTitleStyle: CellStyle = {
-    font: { bold: true, sz: 11, name: "Arial", color: { rgb: COLORS.black } },
-    alignment: { horizontal: "left", vertical: "center" },
-    border: borderThin(),
-  };
-  const preambleTextStyle: CellStyle = {
-    font: { sz: 10, color: { rgb: COLORS.black } },
-    alignment: { horizontal: "left", vertical: "top", wrapText: true },
-    border: borderThin(),
-  };
-  const preambleNoStyle: CellStyle = {
-    font: { sz: 10, bold: true, color: { rgb: COLORS.black } },
-    alignment: { horizontal: "center", vertical: "top" },
-    border: borderThin(),
-  };
-
-  setCell(row, 2, "General Preambles", preambleTitleStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, preambleTitleStyle);
-  setRowHeight(row, 20);
-  row++;
-
-  blankRow();
-
-  setCell(row, 1, "", preambleTextStyle);
-  setCell(
-    row,
-    2,
-    "The following specifications must be taken into consideration in cases where they may not be indicated:",
-    { ...preambleTextStyle, font: { ...preambleTextStyle.font, bold: true } }
-  );
-  merge(row, 2, row, 6);
-  row++;
-
-  blankRow();
-
-  for (const p of STANDARD_PREAMBLES) {
-    setCell(row, 1, p.no, preambleNoStyle);
-    setCell(row, 2, p.text, preambleTextStyle);
-    merge(row, 2, row, 6);
-    row++;
-    blankRow();
-  }
-
-  // Bill subtotals for summary
-  const billTotals: { number: number; title: string; amount: number | null }[] = [];
-
-  // ─── BILLS ────────────────────────────────────────────────────────────────
-  for (const bill of boq.bills) {
-    // Bill title row — "BILL No. X" in col A, title in col B–F (merged)
-    const billTitleStyle: CellStyle = {
-      font: { bold: true, sz: 12, name: "Arial", color: { rgb: COLORS.black } },
-      fill: { fgColor: { rgb: COLORS.header_bg } },
-      alignment: { horizontal: "left", vertical: "center" },
-      border: borderThin(),
-    };
-    setCell(row, 2, `BILL No. ${bill.number}`, billTitleStyle);
-    merge(row, 2, row, 5);
-    styleRange(row, 2, row, 5, billTitleStyle);
-    setRowHeight(row, 20);
-    row++;
-
-    setCell(row, 2, bill.title.toUpperCase(), billTitleStyle);
-    merge(row, 2, row, 5);
-    styleRange(row, 2, row, 5, billTitleStyle);
-    setRowHeight(row, 20);
-    row++;
-
-    blankRow();
-
-    // Column headers repeated for each bill
-    headers.forEach((h, i) => setCell(row, i + 1, h, colHeaderStyle));
-    setRowHeight(row, 20);
-    row++;
-
-    blankRow();
-
-    let billTotal: number | null = null;
-
-    for (const item of bill.items) {
-      if (item.is_header) {
-        // Subsection header
-        const subStyle: CellStyle = {
-          font: { bold: true, sz: 10, name: "Arial", color: { rgb: COLORS.black } },
-          fill: { fgColor: { rgb: COLORS.header_bg } },
-          alignment: { horizontal: "left", vertical: "center" },
-          border: borderThin(),
-        };
-        setCell(row, 1, item.item_no || "", { ...subStyle, alignment: { horizontal: "center", vertical: "center" } });
-        setCell(row, 2, item.description, subStyle);
-        merge(row, 2, row, 5);
-        styleRange(row, 2, row, 5, subStyle);
-        setRowHeight(row, 18);
-        row++;
-        blankRow();
-        continue;
-      }
-
-      // Work item row
-      const itemStyle: CellStyle = {
-        font: { sz: 10, color: { rgb: COLORS.black } },
-        alignment: { horizontal: "left", vertical: "top", wrapText: true },
-        border: borderThin(),
-      };
-      const numStyle: CellStyle = {
-        font: { sz: 10, color: { rgb: COLORS.black } },
-        alignment: { horizontal: "center", vertical: "top" },
-        border: borderThin(),
-      };
-      const currencyStyle: CellStyle = {
-        font: { sz: 10, color: { rgb: COLORS.black } },
-        alignment: { horizontal: "right", vertical: "top" },
-        border: borderThin(),
-        numFmt: "#,##0.00",
-      };
-
-      const amount = computeAmount(item);
-      if (amount !== null) {
-        billTotal = (billTotal ?? 0) + amount;
-      }
-
-      setCell(row, 1, item.item_no || "", { ...numStyle, font: { ...numStyle.font, bold: true } });
-      setCell(row, 2, item.description, itemStyle);
-      setCell(row, 3, item.unit || "", { ...numStyle });
-      setCell(row, 4, item.qty ?? "", numStyle);
-      const placeholder = unresolvedPlaceholder(item);
-      setCell(
-        row,
-        5,
-        item.rate !== null ? item.rate : placeholder,
-        item.rate !== null ? currencyStyle : { ...numStyle, alignment: { horizontal: "center", vertical: "top" } }
-      );
-      setCell(
-        row,
-        6,
-        amount !== null ? amount : placeholder,
-        amount !== null ? currencyStyle : { ...numStyle, alignment: { horizontal: "center", vertical: "top" } }
-      );
-      row++;
-      blankRow();
-    }
-
-    // Bill subtotal row
-    // Format: col A blank | col B–D "TOTAL CARRIED TO SUMMARY..." | col E "ZMW" | col F amount
-    const totalStyle: CellStyle = {
-      font: { bold: true, sz: 10, color: { rgb: COLORS.black } },
-      fill: { fgColor: { rgb: COLORS.total_bg } },
-      alignment: { horizontal: "left", vertical: "center" },
-      border: borderMedium(),
-    };
-    const totalAmountStyle: CellStyle = {
-      ...totalStyle,
-      alignment: { horizontal: "right", vertical: "center" },
-      numFmt: "#,##0.00",
-    };
-    const totalZmwStyle: CellStyle = {
-      ...totalStyle,
-      alignment: { horizontal: "center", vertical: "center" },
-    };
-    setCell(row, 1, "", totalStyle);
-    setCell(row, 2, `${bill.title.toUpperCase()} - TOTAL TO SUMMARY`, totalStyle);
-    merge(row, 2, row, 4);
-    setCell(row, 5, "ZMW", totalZmwStyle);
-    setCell(row, 6, billTotal, billTotal !== null ? totalAmountStyle : totalStyle);
-    row++;
-
-    blankRow();
-
-    billTotals.push({ number: bill.number, title: bill.title, amount: billTotal });
-  }
-
-  // ─── GENERAL SUMMARY ──────────────────────────────────────────────────────
-  // Repeat the title block before the summary (matching sample BOQs)
-  const summaryHeaderBlockStyle: CellStyle = {
-    font: { bold: true, sz: 13, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: borderThin(),
-  };
-
-  setCell(row, 2, "BILL OF QUANTITIES", summaryHeaderBlockStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, summaryHeaderBlockStyle);
-  setRowHeight(row, 22);
-  row++;
-
-  setCell(row, 2, "FOR", summaryHeaderBlockStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, summaryHeaderBlockStyle);
-  setRowHeight(row, 18);
-  row++;
-
-  setCell(row, 2, boq.project.toUpperCase(), summaryHeaderBlockStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, summaryHeaderBlockStyle);
-  setRowHeight(row, 20);
-  row++;
-
-  blankRow();
-
-  const generalSummaryTitleStyle: CellStyle = {
-    font: { bold: true, sz: 13, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.header_bg } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: borderThin(),
-  };
-  setCell(row, 2, "GENERAL SUMMARY", generalSummaryTitleStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, generalSummaryTitleStyle);
-  setRowHeight(row, 22);
-  row++;
-
-  blankRow();
-
-  const summaryColHeaderStyle: CellStyle = {
-    font: { bold: true, sz: 10, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.bill_bg } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: borderMedium(),
-  };
-  setCell(row, 1, "BILL NO.", summaryColHeaderStyle);
-  setCell(row, 2, "DESCRIPTION", summaryColHeaderStyle);
-  merge(row, 2, row, 5);
-  styleRange(row, 2, row, 5, summaryColHeaderStyle);
-  setCell(row, 6, "AMOUNT (ZMW)", summaryColHeaderStyle);
-  setRowHeight(row, 20);
-  row++;
-
-  blankRow();
-
-  let grandTotal: number | null = null;
-  for (const b of billTotals) {
-    const summaryRowStyle: CellStyle = {
-      font: { sz: 10, color: { rgb: COLORS.black } },
-      alignment: { horizontal: "left", vertical: "center" },
-      border: borderThin(),
-    };
-    const summaryAmtStyle: CellStyle = {
-      font: { sz: 10, color: { rgb: COLORS.black } },
-      alignment: { horizontal: "right", vertical: "center" },
-      border: borderThin(),
-      numFmt: "#,##0.00",
-    };
-    setCell(row, 1, `${b.number}`, { ...summaryRowStyle, alignment: { horizontal: "center", vertical: "center" } });
-    setCell(row, 2, `${b.title.toUpperCase()}`, summaryRowStyle);
-    merge(row, 2, row, 5);
-    setCell(row, 6, b.amount, b.amount !== null ? summaryAmtStyle : summaryRowStyle);
-    if (b.amount !== null) grandTotal = (grandTotal ?? 0) + b.amount;
-    row++;
-    blankRow();
-  }
-
-  // Grand total
-  const grandTotalStyle: CellStyle = {
-    font: { bold: true, sz: 12, name: "Arial", color: { rgb: COLORS.black } },
-    fill: { fgColor: { rgb: COLORS.total_bg } },
-    alignment: { horizontal: "left", vertical: "center" },
-    border: borderMedium(),
-  };
-  const grandAmtStyle: CellStyle = {
-    ...grandTotalStyle,
-    alignment: { horizontal: "right", vertical: "center" },
-    numFmt: "#,##0.00",
-  };
-  const grandZmwStyle: CellStyle = {
-    ...grandTotalStyle,
-    alignment: { horizontal: "center", vertical: "center" },
-  };
-  setCell(row, 1, "", grandTotalStyle);
-  setCell(row, 2, "TOTAL      (VAT EXCLUSIVE)", grandTotalStyle);
-  merge(row, 2, row, 4);
-  styleRange(row, 2, row, 4, grandTotalStyle);
-  setCell(row, 5, "ZMW", grandZmwStyle);
-  setCell(row, 6, grandTotal, grandTotal !== null ? grandAmtStyle : grandTotalStyle);
-  setRowHeight(row, 22);
-
-  // ─── WORKSHEET SETUP ──────────────────────────────────────────────────────
-  ws["!merges"] = merges;
-  ws["!cols"] = [
-    { wch: 10 },  // A: Item No
-    { wch: 62 },  // B: Description
-    { wch: 8 },   // C: Unit
-    { wch: 10 },  // D: Qty
-    { wch: 14 },  // E: Rate / ZMW
-    { wch: 16 },  // F: Amount
-  ];
-  ws["!rows"] = rowHeights;
-  ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row, c: 5 } });
-
-  const sheetName = sanitizeSheetName(`BOQ ${boq.project}`);
-  XLSX.utils.book_append_sheet(wb, ws as XLSX.WorkSheet, sheetName);
-
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", cellStyles: true });
-  return buf;
-}
-
 function computeAmount(item: BOQItem): number | null {
   if (item.amount !== null) return Math.round(item.amount * 100) / 100;
   if (item.qty !== null && item.rate !== null) return Math.round(item.qty * item.rate * 100) / 100;
   return null;
-}
-
-/**
- * Converts an uploaded Excel file buffer to a CSV-like text representation
- * suitable for sending to Gemini for parsing/validation.
- */
-export function excelToCSV(buffer: Buffer): string {
-  const wb = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = wb.SheetNames[0];
-  if (!sheetName) return "";
-  const ws = wb.Sheets[sheetName];
-  return XLSX.utils.sheet_to_csv(ws, { blankrows: false });
 }
 
 /**
@@ -963,32 +475,32 @@ export function excelToCSV(buffer: Buffer): string {
  * @param rateColumnHeader - Exact header text of the Rate column (from validateBOQ)
  * @param amountColumnHeader - Exact header text of the Amount column (from validateBOQ)
  */
-export function patchExcelWithRates(
+export async function patchExcelWithRates(
   originalBuffer: Buffer,
   boq: BOQDocument,
   rateColumnHeader: string,
   amountColumnHeader: string
-): Buffer {
-  const wb = XLSX.read(originalBuffer, { type: "buffer" });
+): Promise<Buffer> {
+  const wb = await loadWorkbook(originalBuffer);
   const allItems = boq.bills.flatMap((bill) => bill.items.filter((item) => !item.is_header));
   const fallbackRowsBySheet = new Map<string, Map<string, WorkbookRowRecord[]>>();
   const columnsBySheet = new Map<string, { rateCol: number; amountCol: number }>();
   const perSheetStats = boq.workbook_preservation?.per_sheet_stats ?? [];
 
-  for (const sheetName of wb.SheetNames) {
-    const ws = wb.Sheets[sheetName];
+  for (const ws of wb.worksheets) {
+    const sheetName = ws.name;
     if (!ws) continue;
 
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
     let currentColumns: WorkbookColumnMap | null = null;
     let currentBillTitle = "Front Matter";
     let currentSection: string | null = null;
     let pendingBillTitle = false;
+    const columnCount = Math.max(ws.actualColumnCount, ws.columnCount, 20);
 
     const fallbackRows = new Map<string, WorkbookRowRecord[]>();
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-      const row = rows[rowIndex] ?? [];
+    for (let rowIndex = 0; rowIndex < ws.rowCount; rowIndex += 1) {
+      const row = excelJsRowToArray(ws.getRow(rowIndex + 1), columnCount);
       const detectedHeader = detectHeaderRow(row, rowIndex);
       if (detectedHeader) {
         currentColumns = detectedHeader;
@@ -1079,7 +591,7 @@ export function patchExcelWithRates(
     const targetSheetName = anchor?.sheet ?? item.source_document ?? null;
     if (!targetSheetName) continue;
 
-    const ws = wb.Sheets[targetSheetName];
+    const ws = wb.getWorksheet(targetSheetName);
     const sheetColumns = columnsBySheet.get(targetSheetName);
     if (!ws || !sheetColumns || sheetColumns.rateCol < 0) continue;
 
@@ -1106,34 +618,38 @@ export function patchExcelWithRates(
     const r = targetRow - 1;
     const rateCol = sheetColumns.rateCol;
     const amountCol = sheetColumns.amountCol;
+    const row = ws.getRow(r + 1);
+    const rateCell = row.getCell(rateCol + 1);
 
     if (item.note && /incl/i.test(item.note)) {
-      ws[XLSX.utils.encode_cell({ r, c: rateCol })] = { v: "Incl", t: "s" };
+      rateCell.value = "Incl";
       if (amountCol !== -1) {
-        const amountRef = XLSX.utils.encode_cell({ r, c: amountCol });
-        const existingAmountCell = ws[amountRef];
-        if (!existingAmountCell?.f) {
-          ws[amountRef] = { v: "Incl", t: "s" };
+        const amountCell = row.getCell(amountCol + 1);
+        if (!excelJsCellHasFormula(amountCell)) {
+          amountCell.value = "Incl";
         }
       }
       continue;
     }
 
     if (item.rate !== null) {
-      ws[XLSX.utils.encode_cell({ r, c: rateCol })] = { v: item.rate, t: "n", z: "#,##0.00" };
+      rateCell.value = item.rate;
+      rateCell.numFmt = rateCell.numFmt || "#,##0.00";
     }
 
     if (amountCol !== -1) {
-      const amountRef = XLSX.utils.encode_cell({ r, c: amountCol });
-      const existingAmountCell = ws[amountRef];
-      if (!existingAmountCell?.f) {
+      const amountCell = row.getCell(amountCol + 1);
+      if (!excelJsCellHasFormula(amountCell)) {
         const amount = computeAmount(item);
         if (amount !== null) {
-          ws[amountRef] = { v: amount, t: "n", z: "#,##0.00" };
+          amountCell.value = amount;
+          amountCell.numFmt = amountCell.numFmt || "#,##0.00";
         }
       }
     }
   }
 
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const output = await wb.xlsx.writeBuffer();
+  return Buffer.from(output);
 }
+

@@ -7,7 +7,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const XLSX = require("xlsx");
+const ExcelJS = require("exceljs");
 
 const INSPO_DIR = path.resolve(__dirname, "../inspo_docs");
 const OUT_FILE = path.resolve(__dirname, "../lib/rate-library.json");
@@ -70,8 +70,21 @@ function detectHeaderRow(rows) {
   return null;
 }
 
+function worksheetRows(ws) {
+  const rows = [];
+  for (let rowIndex = 1; rowIndex <= ws.rowCount; rowIndex++) {
+    const row = ws.getRow(rowIndex);
+    const values = [];
+    for (let colIndex = 1; colIndex <= Math.max(ws.columnCount, 20); colIndex++) {
+      values.push(row.getCell(colIndex).value ?? null);
+    }
+    rows.push(values);
+  }
+  return rows;
+}
+
 function extractFromSheet(ws, sheetName, meta) {
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+  const rows = worksheetRows(ws);
   const cols = detectHeaderRow(rows);
   if (!cols) return [];
 
@@ -115,33 +128,33 @@ function extractFromSheet(ws, sheetName, meta) {
   return entries;
 }
 
-function extractFromFile(meta) {
+async function extractFromFile(meta) {
   const filePath = path.join(INSPO_DIR, meta.file);
   if (!fs.existsSync(filePath)) {
     console.warn(`  SKIP (not found): ${meta.file}`);
     return [];
   }
 
-  const wb = XLSX.readFile(filePath, { cellFormula: false, cellStyles: false });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(filePath);
   const entries = [];
 
-  for (const sheetName of wb.SheetNames) {
-    const ws = wb.Sheets[sheetName];
-    const sheetEntries = extractFromSheet(ws, sheetName, meta);
+  for (const ws of wb.worksheets) {
+    const sheetEntries = extractFromSheet(ws, ws.name, meta);
     entries.push(...sheetEntries);
   }
 
   return entries;
 }
 
-function main() {
+async function main() {
   console.log("Extracting rates from priced BOQs...\n");
 
   const allEntries = [];
 
   for (const meta of PRICED_FILES) {
     console.log(`Reading: ${meta.file}`);
-    const entries = extractFromFile(meta);
+    const entries = await extractFromFile(meta);
     console.log(`  ${entries.length} priced items extracted`);
     allEntries.push(...entries);
   }
@@ -166,4 +179,7 @@ function main() {
   console.log(`\nWrote ${deduped.length} entries to ${OUT_FILE}`);
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
