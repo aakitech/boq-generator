@@ -124,10 +124,10 @@ export async function POST(req: NextRequest) {
       supportingDocsCount,
       usageCollector,
     });
-    if (!validation.isSOW || validation.should_block_generation) {
+    if (validation.should_block_generation) {
       return NextResponse.json(
         {
-          error: validation.reason || "These documents don't contain a construction Scope of Work suitable for BOQ generation.",
+          error: validation.reason || "These documents can't be used to generate a BOQ.",
           document_type: validation.documentType || "unknown",
         },
         { status: 422 }
