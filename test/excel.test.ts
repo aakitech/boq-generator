@@ -40,19 +40,21 @@ function buildWorkbookBuffer(): Buffer {
 }
 
 function cloneWithRates(boq: BOQDocument): BOQDocument {
+  let measurableIndex = 0;
   return {
     ...boq,
     bills: boq.bills.map((bill) => ({
       ...bill,
-      items: bill.items.map((item, index) =>
-        item.is_header
-          ? item
-          : {
-              ...item,
-              rate: item.rate ?? 100 + index,
-              amount: item.qty !== null ? (item.rate ?? 100 + index) * item.qty : item.amount,
-            }
-      ),
+      items: bill.items.map((item) => {
+        if (item.is_header) return item;
+        const rate = item.rate ?? 100 + measurableIndex;
+        measurableIndex += 1;
+        return {
+          ...item,
+          rate,
+          amount: item.qty !== null ? rate * item.qty : item.amount,
+        };
+      }),
     })),
   };
 }

@@ -316,7 +316,7 @@ function extractSheetBOQ(
 
     const bill = ensureBill();
     if (isSummaryRow) preservedSummaryRows += 1;
-    if (isMeasuredRow) mappedItemRows += 1;
+    if (isMeasuredRow && !isSummaryRow) mappedItemRows += 1;
 
     const sourceAnchor = `sheet:${sheetName};row:${rowIndex + 1}`;
     const workbookContext = currentSection ? `${currentBillTitle} > ${currentSection}` : currentBillTitle;
@@ -937,8 +937,8 @@ export function generateBOQExcel(boq: BOQDocument): Buffer {
 }
 
 function computeAmount(item: BOQItem): number | null {
-  if (item.amount !== null) return item.amount;
-  if (item.qty !== null && item.rate !== null) return item.qty * item.rate;
+  if (item.amount !== null) return Math.round(item.amount * 100) / 100;
+  if (item.qty !== null && item.rate !== null) return Math.round(item.qty * item.rate * 100) / 100;
   return null;
 }
 
