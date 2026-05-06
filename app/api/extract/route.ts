@@ -15,8 +15,7 @@ const pdfParse = require("pdf-parse") as (
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const MAX_SIZE_SOW = 15 * 1024 * 1024;       // 15 MB for SOW / primary documents
-const MAX_SIZE_DRAWING = 50 * 1024 * 1024;  // 50 MB for engineering drawings (Files API handles it)
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB for all documents
 const MIN_DIRECT_TEXT_LENGTH = 120;
 const GEMINI_VISION_MODELS = [
   process.env.GEMINI_SOW_MODEL_FALLBACK,
@@ -39,7 +38,7 @@ function classifyExtractionError(error: unknown): { status: number; message: str
     return {
       status: 413,
       message:
-        "This file is too large to upload. Please use a PDF or Word document under 50 MB for drawings or 15 MB for SOW documents. If the file is a scanned PDF, try compressing it or exporting only the relevant pages before uploading again.",
+        "This file is too large to upload. Maximum size is 50 MB. If it is a scanned PDF, try compressing it or exporting only the relevant pages.",
     };
   }
 
@@ -211,10 +210,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const maxSize = isSupporting ? MAX_SIZE_DRAWING : MAX_SIZE_SOW;
-    if (file.size > maxSize) {
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `File too large (max ${isSupporting ? "50" : "15"} MB)` },
+        { error: "File too large. Maximum file size is 50 MB." },
         { status: 400 }
       );
     }
