@@ -1,23 +1,23 @@
-/**
- * drawing-extractor.ts
- *
- * Extracts structured text from engineering drawing PDFs using the Gemini
- * Files API. Uploads the raw PDF (up to ~1 GB) server-side, then asks
- * Gemini Vision to read all visible content: labels, dimensions, schedules,
- * room counts, notes, and title block details.
- *
- * Uses the Files API instead of inline base64 data to handle large files
- * (17 MB+ engineering drawings) that exceed the inline data limit (~8 MB).
- */
-
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getServerEnv } from "./server-env";
+import type { DrawingType } from "./types";
 
 const DRAWING_VISION_MODEL = "gemini-2.5-pro";
 
+const VALID_DRAWING_TYPES: DrawingType[] = [
+  "site_plan", "floor_plan", "elevation", "section",
+  "structural", "services", "schedule_of_finishes", "other",
+];
+
 const DRAWING_EXTRACTION_PROMPT = `You are analysing an engineering drawing for a construction project in Zambia. Extract ALL visible information that a quantity surveyor would need to prepare a Bill of Quantities.
 
-Be exhaustive. Return structured plain text under these headings:
+CLASSIFICATION (output these two lines first, before anything else):
+DRAWING_TYPE: <one of: site_plan | floor_plan | elevation | section | structural | services | schedule_of_finishes | other>
+SUBJECT_NAME: <block or structure name from title block, e.g. "Block A Administration" — or NONE if not applicable>
+
+Identify the drawing type from the title block drawing title or drawing content. If this drawing covers a named block or structure (e.g. "Block A - Administration Block", "Classroom Block"), extract that name exactly as written. Use NONE if no specific block name is visible.
+
+Then extract ALL visible information under these headings:
 
 TITLE BLOCK
 - Project name, drawing title, drawing number, scale, date, revision, architect/engineer
@@ -59,12 +59,13 @@ interface DrawingExtractionResult {
   text: string;
   fileUri: string;
   tokenCount: number;
+  drawing_type: DrawingType;
+  subject_name: string | null;
 }
 
 async function uploadToFilesAPI(buffer: Buffer, filename: string, mimeType: string): Promise<string> {
   const key = getServerEnv("GEMINI_API_KEY") as string;
 
-  // Initiate resumable upload
   const initRes = await fetch(
     "https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=resumable",
     {
@@ -90,7 +91,6 @@ async function uploadToFilesAPI(buffer: Buffer, filename: string, mimeType: stri
     throw new Error("Files API did not return an upload URL");
   }
 
-  // Upload the file bytes
   const uploadRes = await fetch(uploadUrl, {
     method: "POST",
     headers: {
@@ -116,14 +116,40 @@ async function uploadToFilesAPI(buffer: Buffer, filename: string, mimeType: stri
 
 async function deleteFromFilesAPI(fileUri: string): Promise<void> {
   const key = getServerEnv("GEMINI_API_KEY");
-  // Extract file name from URI: https://...googleapis.com/v1beta/files/XXXXX
-  const fileName = fileUri.split("/").slice(-2).join("/"); // "files/XXXXX"
+  const fileName = fileUri.split("/").slice(-2).join("/");
   await fetch(
     `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${key}`,
     { method: "DELETE" }
   ).catch(() => {
     // Non-fatal — files expire after 48h anyway
   });
+}
+
+function parseClassificationHeader(raw: string): {
+  drawing_type: DrawingType;
+  subject_name: string | null;
+  text: string;
+} {
+  const lines = raw.split("\n");
+  let drawing_type: DrawingType = "other";
+  let subject_name: string | null = null;
+  let bodyStart = 0;
+
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    const line = lines[i].trim();
+    if (line.startsWith("DRAWING_TYPE:")) {
+      const val = line.slice("DRAWING_TYPE:".length).trim().toLowerCase() as DrawingType;
+      if (VALID_DRAWING_TYPES.includes(val)) drawing_type = val;
+      bodyStart = i + 1;
+    } else if (line.startsWith("SUBJECT_NAME:")) {
+      const val = line.slice("SUBJECT_NAME:".length).trim();
+      subject_name = val && val.toUpperCase() !== "NONE" ? val : null;
+      bodyStart = Math.max(bodyStart, i + 1);
+    }
+  }
+
+  const text = lines.slice(bodyStart).join("\n").trim();
+  return { drawing_type, subject_name, text };
 }
 
 export async function extractDrawingWithVision(
@@ -133,7 +159,6 @@ export async function extractDrawingWithVision(
   const key = getServerEnv("GEMINI_API_KEY") as string;
   const client = new GoogleGenerativeAI(key);
 
-  // Upload to Files API to handle large PDFs
   const fileUri = await uploadToFilesAPI(buffer, filename, "application/pdf");
 
   try {
@@ -147,12 +172,12 @@ export async function extractDrawingWithVision(
       { fileData: { mimeType: "application/pdf", fileUri } },
     ]);
 
-    const text = result.response.text().trim();
+    const raw = result.response.text().trim();
     const tokenCount = result.response.usageMetadata?.totalTokenCount ?? 0;
+    const { drawing_type, subject_name, text } = parseClassificationHeader(raw);
 
-    return { text, fileUri, tokenCount };
+    return { text, fileUri, tokenCount, drawing_type, subject_name };
   } finally {
-    // Clean up uploaded file — don't wait for it
     deleteFromFilesAPI(fileUri);
   }
 }

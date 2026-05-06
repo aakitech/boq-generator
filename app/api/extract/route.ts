@@ -225,6 +225,8 @@ export async function POST(req: NextRequest) {
     let text = "";
     let pages: number | null = null;
     let usedDrawingExtractor = false;
+    let drawingType: string | undefined;
+    let subjectName: string | null | undefined;
 
     if (isPDF) {
       if (buffer[0] !== 0x25 || buffer[1] !== 0x50) {
@@ -242,9 +244,11 @@ export async function POST(req: NextRequest) {
       if (looksLikeDrawing) {
         // Use Files API + Gemini Vision for drawings — handles large files, reads detail
         try {
-          const { text: drawingText } = await extractDrawingWithVision(buffer, file.name);
-          if (drawingText.length > trimmedText.length) {
-            text = formatDrawingTextForPrompt(drawingText, file.name);
+          const drawingResult = await extractDrawingWithVision(buffer, file.name);
+          if (drawingResult.text.length > trimmedText.length) {
+            text = formatDrawingTextForPrompt(drawingResult.text, file.name);
+            drawingType = drawingResult.drawing_type;
+            subjectName = drawingResult.subject_name;
             usedDrawingExtractor = true;
           }
         } catch (drawingError) {
@@ -294,6 +298,8 @@ export async function POST(req: NextRequest) {
         sowWarning: null,
         sowConfidence: 1,
         documentType: usedDrawingExtractor ? "drawing_set" : "specification",
+        drawing_type: drawingType ?? null,
+        subject_name: subjectName ?? null,
         shouldBlockGeneration: false,
         requiredAttachments: [],
         sourceBundleStatus: "complete",
