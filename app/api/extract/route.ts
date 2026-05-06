@@ -39,7 +39,7 @@ function classifyExtractionError(error: unknown): { status: number; message: str
     return {
       status: 413,
       message:
-        "This file is too large to upload. Please use a PDF or Word document under 15 MB. If the file is a scanned PDF, try compressing it or exporting only the relevant pages before uploading again.",
+        "This file is too large. Main SOW uploads are limited to 15 MB. Supporting documents are limited to 50 MB.",
     };
   }
 

@@ -100,6 +100,40 @@ function clearGenerationDraftStorage() {
 
 // ─── Generate BOQ Tab ────────────────────────────────────────────────────────
 
+const MB = 1024 * 1024;
+const PRIMARY_DOCUMENT_MAX_MB = 15;
+const SUPPORTING_DOCUMENT_MAX_MB = 50;
+
+function formatFileSize(bytes: number) {
+  return `${(bytes / MB).toFixed(1)} MB`;
+}
+
+function sizeErrorForDocument(file: File, role: "primary" | "supporting") {
+  const maxMb = role === "supporting" ? SUPPORTING_DOCUMENT_MAX_MB : PRIMARY_DOCUMENT_MAX_MB;
+  if (file.size <= maxMb * MB) return null;
+
+  if (role === "primary") {
+    return `This file is ${formatFileSize(file.size)}. Main SOW uploads are limited to ${maxMb} MB.`;
+  }
+
+  return `This file is ${formatFileSize(file.size)}. Supporting files are limited to ${maxMb} MB.`;
+}
+
+async function readApiResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await res.json()) as T;
+  }
+
+  const raw = (await res.text()).trim();
+  const message =
+    res.status === 413
+      ? "This file is too large for upload. Try compressing it, splitting it, or uploading drawings as supporting documents."
+      : raw || `Request failed with status ${res.status}. Please try again.`;
+
+  throw new Error(message);
+}
+
 function GenerateBOQTab() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -183,6 +217,20 @@ function GenerateBOQTab() {
       setError("Please upload a PDF or Word (.docx) document.");
       return;
     }
+    const fileSizeError = sizeErrorForDocument(f, "primary");
+    if (fileSizeError) {
+      setFile(f);
+      setStage("error");
+      setError(fileSizeError);
+      setPages(null);
+      setSowWarning(null);
+      setIsSOW(null);
+      setClassification(null);
+      setSupportingUploads([]);
+      setPrimaryDoc(null);
+      setBundleDocs([]);
+      return;
+    }
     setFile(f);
     setStage("idle");
     setError(null);
@@ -222,11 +270,25 @@ function GenerateBOQTab() {
     form.append("supporting_docs_count", String(supportingDocsCount));
     form.append("role", role);
     const res = await fetch("/api/extract", { method: "POST", body: form });
+    const body = await readApiResponse<{
+      error?: string;
+      text: string;
+      pages: number | null;
+      isSOW?: boolean;
+      sowWarning?: string | null;
+      sowConfidence?: number | null;
+      documentType?: BOQDocumentType | null;
+      shouldBlockGeneration?: boolean;
+      requiredAttachments?: RequiredAttachment[];
+      sourceBundleStatus?: SourceBundleStatus;
+      positiveSignals?: string[];
+      negativeSignals?: string[];
+      sowFlags?: string[];
+    }>(res);
     if (!res.ok) {
-      const { error: e } = await res.json();
-      throw new Error(e || "Extraction failed");
+      throw new Error(body.error || "Extraction failed");
     }
-    return res.json();
+    return body;
   }
 
   function syncSupportingUploads(requiredAttachments: RequiredAttachment[]) {
@@ -259,6 +321,19 @@ function GenerateBOQTab() {
 
   async function handleSupportingFileSelection(index: number, picked: File | null) {
     if (!picked) return;
+
+    const fileSizeError = sizeErrorForDocument(picked, "supporting");
+    if (fileSizeError) {
+      setSupportingUploads((current) =>
+        current.map((upload, uploadIndex) =>
+          uploadIndex === index
+            ? { ...upload, file: picked, processing: false, error: fileSizeError, processedDoc: null }
+            : upload
+        )
+      );
+      setError(fileSizeError);
+      return;
+    }
 
     setError(null);
     setSupportingUploads((current) =>
@@ -316,6 +391,12 @@ function GenerateBOQTab() {
 
   async function handleExtract() {
     if (!file) return;
+    const fileSizeError = sizeErrorForDocument(file, "primary");
+    if (fileSizeError) {
+      setStage("error");
+      setError(fileSizeError);
+      return;
+    }
     setError(null);
     setSowWarning(null);
     setStage("extracting");
@@ -895,7 +976,7 @@ function GenerateBOQTab() {
             </div>
             <div>
               <p className="font-medium text-sm text-white">Drop your SOW here</p>
-              <p className="text-xs text-gray-500 mt-1">PDF or Word (.docx) · max 15 MB · drawings up to 50 MB</p>
+              <p className="text-xs text-gray-500 mt-1">Main SOW: PDF or Word (.docx) · max 15 MB. Add drawings after the SOW · up to 50 MB.</p>
             </div>
           </div>
         )}
