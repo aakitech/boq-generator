@@ -2560,10 +2560,7 @@ export async function generateBOQ(
   if (opts?.rateContext?.projectType) {
     boq.project_type = opts.rateContext.projectType;
   }
-  if (opts?.suggestRates) {
-    return fillRatesPass(boq, { rateContext: opts.rateContext, usageCollector: opts.usageCollector });
-  }
-  return boq;
+  return fillRatesPass(boq, { rateContext: opts?.rateContext, usageCollector: opts?.usageCollector });
 }
 
 function mergeStructureAndQuantities(

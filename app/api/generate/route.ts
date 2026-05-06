@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
     const boq = await generateBOQ(
       { documents: truncatedDocuments },
       {
-        suggestRates: suggest_rates ?? false,
+        suggestRates: true,
         rateContext: rate_context,
         documentClassification: validation,
         usageCollector,
