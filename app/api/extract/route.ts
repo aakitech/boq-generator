@@ -2,7 +2,6 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import mammoth from "mammoth";
-import { validateSOW } from "@/lib/ai";
 import { extractDrawingWithVision, formatDrawingTextForPrompt } from "@/lib/drawing-extractor";
 import { getServerEnv } from "@/lib/server-env";
 
@@ -190,10 +189,6 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
-    const supportingDocsCount = Number(formData.get("supporting_docs_count") ?? 0);
-    // When role="supporting", skip SOW validation — drawings and specs are never SOWs
-    const role = (formData.get("role") as string | null) ?? "primary";
-    const isSupporting = role === "supporting";
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -287,80 +282,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Supporting documents (drawings, specs) skip SOW validation — they are never SOWs
-    if (isSupporting) {
-      return NextResponse.json({
-        text,
-        pages,
-        isSOW: true,
-        sowWarning: null,
-        sowConfidence: 1,
-        documentType: usedDrawingExtractor ? "drawing_set" : "specification",
-        drawing_type: drawingType ?? null,
-        subject_name: subjectName ?? null,
-        shouldBlockGeneration: false,
-        requiredAttachments: [],
-        sourceBundleStatus: "complete",
-        positiveSignals: [],
-        negativeSignals: [],
-        sowFlags: [],
-      });
-    }
-
-    // Primary SOW — run validation
-    let isSOW = true;
-    let sowWarning: string | null = null;
-    let sowConfidence: number | null = null;
-    let documentType: string | null = null;
-    let shouldBlockGeneration = false;
-    let positiveSignals: string[] = [];
-    let negativeSignals: string[] = [];
-    let sowFlags: string[] = [];
-    try {
-      const validation = await validateSOW(text, { supportingDocsCount });
-      isSOW = validation.isSOW;
-      sowConfidence = validation.confidence;
-      documentType = validation.documentType;
-      shouldBlockGeneration = validation.should_block_generation;
-      const requiredAttachments = validation.required_attachments ?? [];
-      const sourceBundleStatus = validation.source_bundle_status ?? "complete";
-      positiveSignals = validation.positive_signals ?? [];
-      negativeSignals = validation.negative_signals ?? [];
-      sowFlags = validation.flags ?? [];
-      if (!isSOW) {
-        sowWarning = validation.reason;
-      }
-      return NextResponse.json({
-        text,
-        pages,
-        isSOW,
-        sowWarning,
-        sowConfidence,
-        documentType,
-        shouldBlockGeneration,
-        requiredAttachments,
-        sourceBundleStatus,
-        positiveSignals,
-        negativeSignals,
-        sowFlags,
-      });
-    } catch {
-      // Non-fatal — proceed without validation result
-    }
-
     return NextResponse.json({
       text,
       pages,
-      isSOW,
-      sowWarning,
-      sowConfidence,
-      documentType,
-      shouldBlockGeneration,
-      requiredAttachments: [],
-      sourceBundleStatus: "complete",
-      positiveSignals,
-      negativeSignals,
-      sowFlags,
+      drawing_type: drawingType ?? null,
+      subject_name: subjectName ?? null,
     });
   } catch (err) {
     logger.error("Extraction error", { error: err instanceof Error ? err.message : String(err), route: "extract" });

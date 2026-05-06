@@ -90,8 +90,6 @@ export default function GenerateBOQTab() {
     }
     const form = new FormData();
     form.append("file", file);
-    form.append("supporting_docs_count", "0");
-    form.append("role", "supporting");
     const res = await fetch("/api/extract", { method: "POST", body: form });
     if (!res.ok) {
       const { error: e } = await res.json();
