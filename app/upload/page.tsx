@@ -472,40 +472,8 @@ function GenerateBOQTab() {
     if (remainingCredits > 0) {
       setStage("paying");
       setError(null);
-
-      try {
-        const res = await fetch("/api/unlock-boq", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ boq_id: boqId, use_credit: true }),
-        });
-
-        if (!res.ok) {
-          const body = (await res.json()) as { error?: string; remainingCredits?: number };
-          if (typeof body.remainingCredits === "number") {
-            setRemainingCredits(body.remainingCredits);
-          } else {
-            await refreshCredits();
-          }
-          throw new Error(body.error || "Could not unlock BOQ with credits");
-        }
-
-        const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
-        if (typeof body.remainingCredits === "number") {
-          setRemainingCredits(body.remainingCredits);
-        } else {
-          await refreshCredits();
-        }
-
-        clearGenerationDraftStorage();
-        router.push(body.boq_id ? `/boq/${body.boq_id}` : "/boq");
-        return;
-      } catch (err) {
-        setStage("preview");
-        const msg = err instanceof Error ? err.message : "Something went wrong";
-        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
-        return;
-      }
+      router.push(`/generating?boq_id=${encodeURIComponent(boqId)}&pay=credits&type=generate`);
+      return;
     }
 
     setStage("paying");
@@ -1087,41 +1055,8 @@ function RateBOQTab() {
     setError(null);
 
     if (remainingCredits > 0 && rateBoqId) {
-      try {
-        const res = await fetch("/api/rate-boq", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            boq_id: rateBoqId,
-            use_credit: true,
-            rate_context: ctx,
-          }),
-        });
-        if (!res.ok) {
-          const body = (await res.json()) as { error?: string; remainingCredits?: number };
-          if (typeof body.remainingCredits === "number") {
-            setRemainingCredits(body.remainingCredits);
-          } else {
-            await refreshCredits();
-          }
-          throw new Error(body.error || "Could not rate BOQ with credits");
-        }
-        const body = (await res.json()) as { boq_id?: string | null; remainingCredits?: number };
-        if (typeof body.remainingCredits === "number") {
-          setRemainingCredits(body.remainingCredits);
-        } else {
-          await refreshCredits();
-        }
-        localStorage.removeItem("boq_type");
-        localStorage.removeItem("boq_rate_context");
-        router.push(body.boq_id ? `/boq/${body.boq_id}` : "/boq");
-        return;
-      } catch (err) {
-        setStage("ready");
-        const msg = err instanceof Error ? err.message : "Something went wrong";
-        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
-        return;
-      }
+      router.push(`/generating?boq_id=${encodeURIComponent(rateBoqId)}&pay=credits&type=rate_boq`);
+      return;
     }
 
     if (PAYMENT_MODE !== "stripe") {

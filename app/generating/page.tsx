@@ -12,13 +12,15 @@ function GeneratingContent() {
   const params = useSearchParams();
   const sessionId = params.get("session_id");
   const resumeBoqId = params.get("boq_id");
+  const creditUnlock = params.get("pay") === "credits";
+  const creditType = params.get("type");
   const ph = usePostHog();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(10);
   const [statusText, setStatusText] = useState("Verifying payment and preparing your BOQ...");
   const [isRateBoq, setIsRateBoq] = useState(false);
   const [isCheckingSavedBoq, setIsCheckingSavedBoq] = useState(false);
-  const { remainingCredits, loadingCredits } = useCredits();
+  const { remainingCredits, loadingCredits, setRemainingCredits, refreshCredits } = useCredits();
   const started = useRef(false);
 
   type RecoveryState = {
@@ -81,7 +83,7 @@ function GeneratingContent() {
       }
 
       if (resumeBoqId) {
-        setIsRateBoq(true);
+        setIsRateBoq(!creditUnlock || creditType === "rate_boq");
       } else {
         const recovered = await recoverBySession(sessionId!);
         if (recovered?.boq_id && recovered.processing_status === "completed") {
@@ -90,7 +92,11 @@ function GeneratingContent() {
         }
       }
 
-      const boqType = resumeBoqId ? "rate_boq" : (localStorage.getItem("boq_type") ?? "generate");
+      const boqType = creditUnlock
+        ? (creditType ?? localStorage.getItem("boq_type") ?? "generate")
+        : resumeBoqId
+          ? "rate_boq"
+          : (localStorage.getItem("boq_type") ?? "generate");
       const isRateBoqValue = boqType === "rate_boq";
       setIsRateBoq(isRateBoqValue);
 
@@ -127,11 +133,34 @@ function GeneratingContent() {
         let res: Response;
 
         if (resumeBoqId) {
-          setStatusText("Resuming your paid BOQ and filling in rates...");
-          res = await fetch(`/api/boqs/${resumeBoqId}/resume`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-          });
+          const rateContextRaw = localStorage.getItem("boq_rate_context");
+          const rateContext = rateContextRaw ? JSON.parse(rateContextRaw) : undefined;
+
+          if (creditUnlock && !isRateBoqValue) {
+            setStatusText("Using credits and unlocking your BOQ...");
+            res = await fetch("/api/unlock-boq", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ boq_id: resumeBoqId, use_credit: true }),
+            });
+          } else if (creditUnlock) {
+            setStatusText("Using credits and filling in rates...");
+            res = await fetch("/api/rate-boq", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                boq_id: resumeBoqId,
+                use_credit: true,
+                rate_context: isRateBoqValue ? rateContext : undefined,
+              }),
+            });
+          } else {
+            setStatusText("Resuming your paid BOQ and filling in rates...");
+            res = await fetch(`/api/boqs/${resumeBoqId}/resume`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            });
+          }
         } else if (isRateBoqValue) {
           setStatusText("AI is parsing your BOQ and filling in rates...");
           const rateContextRaw = localStorage.getItem("boq_rate_context");
@@ -175,8 +204,14 @@ function GeneratingContent() {
           throw new Error(e || (isRateBoqValue ? "Rate filling failed" : "Could not unlock BOQ"));
         }
 
-        const { boq, boq_id } = await res.json();
+        const { boq, boq_id, remainingCredits: updatedCredits } = await res.json();
         setProgress(100);
+
+        if (typeof updatedCredits === "number") {
+          setRemainingCredits(updatedCredits);
+        } else if (creditUnlock) {
+          await refreshCredits();
+        }
 
         ph.capture(isRateBoqValue ? "boq_rates_filled" : "boq_unlocked", {
           boq_id,
@@ -231,7 +266,7 @@ function GeneratingContent() {
     }
 
     unlock();
-  }, [resumeBoqId, sessionId, router]);
+  }, [resumeBoqId, sessionId, creditUnlock, creditType, router, setRemainingCredits, refreshCredits]);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16">
