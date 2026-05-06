@@ -19,6 +19,7 @@ import type {
   SourceBundleStatus,
   BOQStructureArtifact,
   BOQValidationFlag,
+  StructureMode,
 } from "./types";
 import { computeDeterministicQA, mergeQAScores } from "./boq-qa";
 import { buildDefaultRateReference } from "./rate-reference";
@@ -33,6 +34,8 @@ export type GenerationInputDocument = {
   document_type?: BOQDocumentType | RequiredAttachmentType | "supporting_context";
   text: string;
   pages?: number | null;
+  drawing_type?: string | null;
+  subject_name?: string | null;
 };
 type GenerationInputBundle = {
   documents: GenerationInputDocument[];
@@ -654,37 +657,90 @@ function buildSourceBundle(documents: GenerationInputDocument[]): SourceBundleDo
   }));
 }
 
+function drawingLabel(doc: GenerationInputDocument): string {
+  const type = doc.drawing_type;
+  const subject = doc.subject_name ? ` (${doc.subject_name})` : "";
+  switch (type) {
+    case "site_plan":          return `ATTACHED SITE PLAN${subject}`;
+    case "floor_plan":         return `ATTACHED FLOOR PLAN${subject}`;
+    case "elevation":          return `ATTACHED ELEVATION DRAWING${subject}`;
+    case "section":            return `ATTACHED SECTION DRAWING${subject}`;
+    case "structural":         return `ATTACHED STRUCTURAL DRAWING${subject}`;
+    case "services":           return `ATTACHED SERVICES DRAWING${subject}`;
+    case "schedule_of_finishes": return `ATTACHED SCHEDULE OF FINISHES${subject}`;
+    default:                   return `ATTACHED DRAWING${subject}`;
+  }
+}
+
+function drawingInstruction(drawingType: string | null | undefined): string {
+  switch (drawingType) {
+    case "floor_plan":
+      return "INSTRUCTION: Extract every room name, count, and dimensions. Note door/window positions and finish schedule.\n";
+    case "site_plan":
+      return "INSTRUCTION: Extract site boundaries, block positions, road/access layout, overall dimensions, and building footprints.\n";
+    case "structural":
+      return "INSTRUCTION: Extract column grid references and spacings, slab thicknesses, beam sizes, foundation depth and type.\n";
+    case "services":
+      return "INSTRUCTION: Extract pipe runs, fixture counts, circuit counts, distribution board locations.\n";
+    case "elevation":
+    case "section":
+      return "INSTRUCTION: Extract floor-to-ceiling heights, wall heights, roof pitch, window and door sizes.\n";
+    default:
+      return "INSTRUCTION: Read all room labels, dimensions, counts, schedules, and structural notes from this drawing.\n";
+  }
+}
+
 function buildPromptBundle(documents: GenerationInputDocument[]): string {
-  const hasDrawings = documents.some(
-    (d) => d.role === "supporting" && (d.document_type === "drawing_set" || /drawing|floor plan|site plan/i.test(d.name))
+  const drawings = documents.filter(
+    (d) => d.role === "supporting" && (
+      d.document_type === "drawing_set" ||
+      d.drawing_type != null ||
+      /drawing|floor plan|site plan/i.test(d.name)
+    )
   );
 
-  const header = hasDrawings
-    ? `NOTE: This bundle includes engineering drawings. When reading ATTACHED DRAWING documents, extract room counts, dimensions, and structural elements to derive quantities. Cross-reference the drawing text with the SOW to resolve ambiguities.\n\n`
-    : "";
+  let header = "";
+  if (drawings.length > 0) {
+    const drawingDescriptions = drawings.map((d) => {
+      const type = d.drawing_type ?? "drawing";
+      const label = type.replace(/_/g, " ");
+      return d.subject_name ? `${label} (${d.subject_name})` : label;
+    });
+    header = `NOTE: This bundle includes engineering drawings: ${drawingDescriptions.join(", ")}. Use them to derive room counts, dimensions, structural elements, and quantities. Cross-reference with the SOW text.\n\n`;
+  }
+
+  let primaryIndex = 0;
+  let supportingIndex = 0;
 
   const body = documents
-    .map((doc, index) => {
+    .map((doc) => {
       const isDrawing = doc.role === "supporting" && (
         doc.document_type === "drawing_set" ||
+        doc.drawing_type != null ||
         /drawing|floor plan|site plan/i.test(doc.name)
       );
-      const label = doc.role === "primary"
-        ? "PRIMARY SOW"
-        : isDrawing
-          ? "ATTACHED DRAWING"
-          : `ATTACHED ${doc.document_type ?? "DOCUMENT"}`;
 
-      const drawingNote = isDrawing
-        ? "INSTRUCTION: Read all room labels, dimensions, counts, and schedules from this drawing to supplement the SOW quantities.\n"
-        : "";
+      let label: string;
+      let instruction = "";
+
+      if (doc.role === "primary") {
+        primaryIndex++;
+        label = `PRIMARY SOW ${primaryIndex}`;
+      } else if (isDrawing) {
+        supportingIndex++;
+        label = `${drawingLabel(doc)} ${supportingIndex}`;
+        instruction = drawingInstruction(doc.drawing_type);
+      } else {
+        supportingIndex++;
+        label = `ATTACHED ${(doc.document_type ?? "DOCUMENT").toString().toUpperCase()} ${supportingIndex}`;
+      }
 
       return [
-        `### ${label} ${index + 1}`,
+        `### ${label}`,
         `document_id: ${doc.document_id}`,
         `name: ${doc.name}`,
         `pages: ${doc.pages ?? "unknown"}`,
-        drawingNote,
+        instruction,
         doc.text,
       ].join("\n");
     })
@@ -1041,15 +1097,91 @@ When the document bundle includes [ENGINEERING DRAWING: ...] sections, read them
 - Floor-to-ceiling heights → use for wall areas and column heights
 Always show your dimensional arithmetic in derivation_note. Set evidence_type to "derived_calculation" and source_document to the drawing filename.`;
 
+function buildMultiBlockStructurePrompt(blocks: string[]): string {
+  const blockList = blocks.length > 0
+    ? blocks.map((b, i) => `Bill ${i + 2} — ${b.toUpperCase()}`).join("\n")
+    : "Bill 2 onwards — one bill per named structure/block";
+
+  return STRUCTURE_PROMPT.replace(
+    /BILL SEQUENCING \(follow this trade order\):[\s\S]*?Bill 10\+ — Any project-specific additional bills.*?\n/,
+    `BILL STRUCTURE (multi-block project):
+Bill 1 — PRELIMINARY AND GENERAL ITEMS (same rules as always — mobilisation, site establishment, health & safety, insurance, temporary works, as-builts)
+${blockList}
+  Within each block bill, use section headers (is_header: true) for trade groupings:
+  "Substructure", "Superstructure", "Roofing", "Internal Finishes", "Joinery & Ironmongery", "Plumbing & Drainage", "Electrical Installation"
+  Do NOT create separate bills per trade — trades are section headers within each block bill.
+  Use exactly the block names listed above. Do not merge blocks or invent new ones.
+Final bill — EXTERNAL WORKS AND SERVICES (site-wide items not belonging to a single block: external paving, boundary walls, drainage reticulation, site clearance)
+
+`
+  );
+}
+
+async function classifyProjectStructure(
+  documents: GenerationInputDocument[],
+  usageCollector?: GeminiUsageCollector
+): Promise<{ structure_type: StructureMode; blocks: string[] }> {
+  try {
+    const primaryText = documents
+      .filter((d) => d.role === "primary")
+      .map((d) => d.text.slice(0, 3000))
+      .join("\n");
+
+    const subjectNames = documents
+      .filter((d) => d.role === "supporting" && d.subject_name)
+      .map((d) => d.subject_name as string);
+
+    const contextSuffix = subjectNames.length > 0
+      ? `\n\nBlocks identified in attached drawings: ${subjectNames.join(", ")}`
+      : "";
+
+    const result = await callModel<{ structure_type: string; blocks: string[] }>({
+      prompt: `Classify this construction project scope:\n\n${primaryText}${contextSuffix}`,
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          structure_type: { type: SchemaType.STRING },
+          blocks: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        },
+        required: ["structure_type", "blocks"],
+      },
+      systemInstruction: `You are classifying a construction project scope. Determine whether this is a single-structure project or a multi-block project.
+A multi-block project has two or more distinct named buildings or blocks in scope (e.g. Admin Block, Classroom Block, Ablution Block).
+Return structure_type as "multi_block" if two or more named structures are clearly identified; otherwise return "single".
+Return blocks as an array of block names in the order they appear in the SOW. Use short descriptive names (e.g. "Block A: Administration Block").`,
+      temperature: 0,
+      useFastModel: true,
+      usageCollector,
+      usageOperation: "classify_project_structure",
+    });
+
+    const isMultiBlock = result.structure_type === "multi_block" && Array.isArray(result.blocks) && result.blocks.length >= 2;
+    return {
+      structure_type: isMultiBlock ? "block_based" : "trade_based",
+      blocks: isMultiBlock ? result.blocks : [],
+    };
+  } catch {
+    return { structure_type: "trade_based", blocks: [] };
+  }
+}
+
 async function generateStructure(
   bundleText: string,
   recoveryMode: boolean,
+  structureMode: StructureMode = "trade_based",
+  blocks: string[] = [],
   usageCollector?: GeminiUsageCollector
 ): Promise<StructurePassResponse> {
+  const systemInstruction = recoveryMode
+    ? STRUCTURE_RECOVERY_PROMPT
+    : structureMode === "block_based"
+      ? buildMultiBlockStructurePrompt(blocks)
+      : STRUCTURE_PROMPT;
+
   return callModel<StructurePassResponse>({
     prompt: `Extract BOQ structure only from this document bundle:\n\n${bundleText}`,
     responseSchema: STRUCTURE_SCHEMA,
-    systemInstruction: recoveryMode ? STRUCTURE_RECOVERY_PROMPT : STRUCTURE_PROMPT,
+    systemInstruction,
     temperature: recoveryMode ? 0.3 : 0.2,
     usageCollector,
     usageOperation: recoveryMode ? "generate_structure_recovery" : "generate_structure",
@@ -1091,6 +1223,7 @@ async function callModel<T>({
   responseSchema,
   systemInstruction,
   temperature,
+  useFastModel,
   usageCollector,
   usageOperation,
 }: {
@@ -1098,6 +1231,7 @@ async function callModel<T>({
   responseSchema: object;
   systemInstruction: string;
   temperature: number;
+  useFastModel?: boolean;
   usageCollector?: GeminiUsageCollector;
   usageOperation?: string;
 }): Promise<T> {
@@ -1106,6 +1240,7 @@ async function callModel<T>({
     responseSchema,
     systemInstruction,
     temperature,
+    useFastModel,
     usageCollector,
     usageOperation,
   });
@@ -2384,12 +2519,16 @@ export async function generateBOQ(
       : input.documents;
   const bundleText = buildPromptBundle(documents);
 
-  const structureRaw = await generateStructure(bundleText, false, opts?.usageCollector);
+  const { structure_type: structureMode, blocks } = await classifyProjectStructure(documents, opts?.usageCollector);
+
+  const structureRaw = await generateStructure(bundleText, false, structureMode, blocks, opts?.usageCollector);
   let structure = normalizeStructure(structureRaw);
+  structure.structure_mode = structureMode;
 
   if (countNonHeaderItems(structure) === 0) {
-    const retryRaw = await generateStructure(bundleText, true, opts?.usageCollector);
+    const retryRaw = await generateStructure(bundleText, true, structureMode, blocks, opts?.usageCollector);
     structure = normalizeStructure(retryRaw);
+    structure.structure_mode = structureMode;
   }
 
   if (countNonHeaderItems(structure) === 0) {
@@ -2594,6 +2733,7 @@ function mergeStructureAndQuantities(
     prepared_by: structure.prepared_by,
     date: structure.date,
     bills,
+    structure_mode: structure.structure_mode,
     pipeline_version: "quantity-v2.0",
     document_classification: documentClassification,
     source_bundle: sourceBundle,

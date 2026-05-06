@@ -20,6 +20,16 @@ type ExtractedDoc = {
   document_type: BOQDocumentType | RequiredAttachment["type"] | "supporting_context";
   text: string;
   pages: number | null;
+  drawing_type?: string | null;
+  subject_name?: string | null;
+};
+
+type ExtraDoc = {
+  id: string;
+  file: File;
+  processedDoc?: ExtractedDoc | null;
+  processing?: boolean;
+  error?: string | null;
 };
 type SupportingUpload = {
   requirement: RequiredAttachment;
@@ -167,6 +177,7 @@ function GenerateBOQTab() {
     flags: string[];
   } | null>(null);
   const [supportingUploads, setSupportingUploads] = useState<SupportingUpload[]>([]);
+  const [extraDocs, setExtraDocs] = useState<ExtraDoc[]>([]);
   const [primaryDoc, setPrimaryDoc] = useState<ExtractedDoc | null>(null);
   const [bundleDocs, setBundleDocs] = useState<ExtractedDoc[]>([]);
   const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
@@ -244,6 +255,7 @@ function GenerateBOQTab() {
     setIsSOW(null);
     setClassification(null);
     setSupportingUploads([]);
+    setExtraDocs([]);
     setPrimaryDoc(null);
     setBundleDocs([]);
     setManualPaymentRequested(false);
@@ -269,6 +281,8 @@ function GenerateBOQTab() {
     positiveSignals?: string[];
     negativeSignals?: string[];
     sowFlags?: string[];
+    drawing_type?: string | null;
+    subject_name?: string | null;
   }> {
     const form = new FormData();
     form.append("file", documentFile);
@@ -335,8 +349,11 @@ function GenerateBOQTab() {
       ...supportingUploads
         .map((upload) => upload.processedDoc)
         .filter((doc): doc is ExtractedDoc => Boolean(doc)),
+      ...extraDocs
+        .map((extra) => extra.processedDoc)
+        .filter((doc): doc is ExtractedDoc => Boolean(doc)),
     ];
-  }, [primaryDoc, supportingUploads]);
+  }, [primaryDoc, supportingUploads, extraDocs]);
 
   useEffect(() => {
     setBundleDocs(derivedBundle);
@@ -388,6 +405,8 @@ function GenerateBOQTab() {
                   document_type: upload.requirement.type,
                   text: extracted.text,
                   pages: extracted.pages ?? null,
+                  drawing_type: extracted.drawing_type ?? null,
+                  subject_name: extracted.subject_name ?? null,
                 },
               }
             : upload
@@ -413,6 +432,48 @@ function GenerateBOQTab() {
       );
       setError(msg);
     }
+  }
+
+  async function handleExtraDocAdd(picked: File) {
+    const id = `extra-${Date.now()}`;
+    setExtraDocs((current) => [...current, { id, file: picked, processing: true, error: null }]);
+    try {
+      const extracted = await extractSingleDocument(picked, 0, "supporting");
+      const docIndex = extraDocs.length; // used for document_id only
+      setExtraDocs((current) =>
+        current.map((extra) =>
+          extra.id === id
+            ? {
+                ...extra,
+                processing: false,
+                error: null,
+                processedDoc: {
+                  document_id: `extra-${id}`,
+                  name: picked.name,
+                  role: "supporting",
+                  document_type: "supporting_context",
+                  text: extracted.text,
+                  pages: extracted.pages ?? null,
+                  drawing_type: extracted.drawing_type ?? null,
+                  subject_name: extracted.subject_name ?? null,
+                },
+              }
+            : extra
+        )
+      );
+      void docIndex;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Extraction failed";
+      setExtraDocs((current) =>
+        current.map((extra) =>
+          extra.id === id ? { ...extra, processing: false, error: msg } : extra
+        )
+      );
+    }
+  }
+
+  function handleExtraDocRemove(id: string) {
+    setExtraDocs((current) => current.filter((extra) => extra.id !== id));
   }
 
   async function handleExtract() {
@@ -452,6 +513,8 @@ function GenerateBOQTab() {
           document_type: upload.requirement.type,
           text: extracted.text,
           pages: extracted.pages ?? null,
+          drawing_type: extracted.drawing_type ?? null,
+          subject_name: extracted.subject_name ?? null,
         });
       }
       const nextPrimaryDoc: ExtractedDoc = {
@@ -815,6 +878,49 @@ function GenerateBOQTab() {
               </div>
             )}
 
+            {primaryDoc && (
+              <div className="space-y-2">
+                {extraDocs.map((extra) => (
+                  <div key={extra.id} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-white truncate">{extra.file.name}</p>
+                      {extra.processing && <p className="text-[11px] text-amber-200 mt-0.5">Processing...</p>}
+                      {extra.processedDoc && !extra.processing && <p className="text-[11px] text-green-300 mt-0.5">Added</p>}
+                      {extra.error && <p className="text-[11px] text-red-300 mt-0.5">{extra.error}</p>}
+                    </div>
+                    <button
+                      onClick={() => handleExtraDocRemove(extra.id)}
+                      className="text-xs text-gray-500 hover:text-gray-300 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {extraDocs.length < 5 && (
+                  <>
+                    <input
+                      type="file"
+                      accept=".pdf,.docx"
+                      className="hidden"
+                      id="extra-doc-input"
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0];
+                        if (picked) void handleExtraDocAdd(picked);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      onClick={() => document.getElementById("extra-doc-input")?.click()}
+                      className="w-full px-3 py-2 rounded-lg border border-dashed border-white/20 hover:border-white/40 text-xs text-gray-400 hover:text-white transition-colors"
+                    >
+                      + Add more documents
+                    </button>
+                    <p className="text-[10px] text-gray-500 text-center">PDF or Word · max 50 MB · drawings, specs, schedules</p>
+                  </>
+                )}
+              </div>
+            )}
+
             {bundleDocs.length > 0 && (
               <div>
                 <p className="text-[11px] text-gray-400 mt-2">
@@ -842,6 +948,7 @@ function GenerateBOQTab() {
               setIsSOW(null);
               setClassification(null);
               setSupportingUploads([]);
+              setExtraDocs([]);
               setBundleDocs([]);
             }}
           >
@@ -1019,6 +1126,7 @@ function GenerateBOQTab() {
                   setIsSOW(null);
                   setClassification(null);
                   setSupportingUploads([]);
+                  setExtraDocs([]);
                   setBundleDocs([]);
                 }}>
                 Remove

@@ -134,7 +134,7 @@ export async function POST(
         write("status", { step: "planning" });
         const response = await proposeBOQEditWithAI(sourceBoq, instruction, usageCollector, conversationContext);
 
-        // Question mode: free, no credits consumed.
+        // Question mode: free, no credits consumed. No summary streaming.
         if (response.mode === "question") {
           write("question", { question: response.question });
           write("done", { ok: true });
