@@ -4,9 +4,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdf-parse", "pg", "mammoth"],
   experimental: {
-    serverActions: {
-      bodySizeLimit: "55mb",
-    },
+    middlewareClientMaxBodySize: "55mb",
   },
 };
 
