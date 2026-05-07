@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     const reference = topupRow.id.slice(0, 8).toUpperCase();
     const whatsappNumber = process.env.TOPUP_WHATSAPP_NUMBER ?? "";
-    const ecocashNumber = process.env.TOPUP_ECOCASH_NUMBER ?? "";
+    const ecocashNumber = process.env.TOPUP_MOMO_NUMBER ?? "";
     const bankDetails = process.env.TOPUP_BANK_DETAILS ?? "";
 
     const whatsappMessage = [
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       reference,
       amount_usd,
       credits_to_grant: creditsToGrant,
-      ecocash_number: ecocashNumber || null,
+      momo_number: ecocashNumber || null,
       bank_details: bankDetails || null,
       whatsapp_url: whatsappUrl,
     });
