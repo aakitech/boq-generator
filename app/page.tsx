@@ -1,5 +1,6 @@
 import Footer from "@/components/Footer";
 import WaitlistForm from "@/components/WaitlistForm";
+import DemoVideo from "@/components/DemoVideo";
 
 export default function LandingPage() {
   return (
@@ -59,7 +60,10 @@ export default function LandingPage() {
 
         {/* How it works */}
         <section className="border-t border-[#1c1c1c] mx-auto max-w-[960px] px-6 py-16 sm:py-20">
-          <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-[#404040] mb-10">How it works</p>
+          <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-[#404040] mb-8">How it works</p>
+          <div className="mb-10">
+            <DemoVideo />
+          </div>
           <div className="grid gap-4 md:grid-cols-3">
             {[
               { step: "01", title: "Upload your documents", desc: "SoW, drawings, schedules — drop them all in. Up to 6 files, 50 MB each." },
