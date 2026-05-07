@@ -45,7 +45,12 @@ export const rateBOQJob = inngest.createFunction(
         .download(storage_key);
 
       if (downloadError || !fileData) {
-        throw new Error(`Storage download failed: ${String(downloadError)}`);
+        const isGone = String(downloadError).includes("Object not found") || String(downloadError).includes("404");
+        throw new Error(
+          isGone
+            ? `Source Excel file no longer exists in storage (key: ${storage_key}). Re-upload the file from the UI to retry.`
+            : `Storage download failed: ${String(downloadError)}`
+        );
       }
 
       const buffer = Buffer.from(await fileData.arrayBuffer());
