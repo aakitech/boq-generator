@@ -33,7 +33,8 @@ function classifyExtractionError(error: unknown): { status: number; message: str
     lower.includes("failed to parse body as formdata") ||
     lower.includes("request body exceeded") ||
     lower.includes("body exceeded") ||
-    lower.includes("too large")
+    lower.includes("entity too large") ||
+    lower.includes("payload too large")
   ) {
     return {
       status: 413,
@@ -246,8 +247,11 @@ export async function POST(req: NextRequest) {
             usedDrawingExtractor = true;
           }
         } catch (drawingError) {
-          logger.warn("Drawing vision extraction failed, falling back to inline vision", {
+          logger.error("Drawing vision extraction failed", {
+            filename: file.name,
+            fileSizeMb: (file.size / 1024 / 1024).toFixed(1),
             error: drawingError instanceof Error ? drawingError.message : String(drawingError),
+            stack: drawingError instanceof Error ? drawingError.stack : undefined,
           });
           // Fallback to old inline vision for smaller files
           if (file.size <= 8 * 1024 * 1024) {
@@ -290,7 +294,11 @@ export async function POST(req: NextRequest) {
       subject_name: subjectName ?? null,
     });
   } catch (err) {
-    logger.error("Extraction error", { error: err instanceof Error ? err.message : String(err), route: "extract" });
+    logger.error("Extraction error", {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      route: "extract",
+    });
     const classified = classifyExtractionError(err);
     return NextResponse.json({ error: classified.message }, { status: classified.status });
   }
