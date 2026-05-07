@@ -17,6 +17,7 @@ interface TopUpResult {
   amount_usd: number;
   credits_to_grant: number;
   momo_number: string | null;
+  airtel_number: string | null;
   bank_details: string | null;
   whatsapp_url: string | null;
 }
@@ -179,6 +180,13 @@ function TopUpModalContent({ onClose }: { onClose: () => void }) {
                 <div className="px-4 py-3 rounded" style={{ border: "1px solid #262626", background: "#1a1a1a" }}>
                   <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#404040] mb-1">MTN MoMo</p>
                   <p className="font-mono text-[15px] text-[#f5f5f5]">{result.momo_number}</p>
+                </div>
+              )}
+
+              {result.airtel_number && (
+                <div className="px-4 py-3 rounded" style={{ border: "1px solid #262626", background: "#1a1a1a" }}>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#404040] mb-1">Airtel Money</p>
+                  <p className="font-mono text-[15px] text-[#f5f5f5]">{result.airtel_number}</p>
                 </div>
               )}
 

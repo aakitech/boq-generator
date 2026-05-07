@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       amount_usd,
       credits_to_grant: creditsToGrant,
       momo_number: ecocashNumber || null,
+      airtel_number: ecocashNumber || null,
       bank_details: bankDetails || null,
       whatsapp_url: whatsappUrl,
     });
