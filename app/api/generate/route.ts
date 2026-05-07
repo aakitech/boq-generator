@@ -10,6 +10,7 @@ import { getRemainingCredits } from "@/lib/credits";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+export const maxRequestBodySize = "55mb";
 
 export async function POST(req: NextRequest) {
   try {

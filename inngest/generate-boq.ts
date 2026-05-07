@@ -10,7 +10,7 @@ import { logger } from "@/lib/logger";
 import { sendBoqReadyEmail } from "@/lib/email/boq-ready";
 
 export const generateBOQJob = inngest.createFunction(
-  { id: "generate-boq", retries: 1, timeouts: { finish: "5m" }, triggers: [{ event: "boq/generate.requested" }] },
+  { id: "generate-boq", retries: 1, timeouts: { finish: "15m" }, triggers: [{ event: "boq/generate.requested" }] },
   async ({ event, step }) => {
     const { boq_id, documents, rate_context, user_id, user_email } = event.data as {
       boq_id: string;

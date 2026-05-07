@@ -8,6 +8,7 @@ import { trackEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+export const maxRequestBodySize = "55mb";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB (storage bucket limit)
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "boq-generator-dev";

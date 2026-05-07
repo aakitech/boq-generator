@@ -215,7 +215,9 @@ export default function DashboardPage() {
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-[13px] font-medium text-[#f5f5f5] truncate">{boq.title}</p>
+                      <p className="text-[13px] font-medium text-[#f5f5f5] truncate">
+                        {boq.title === "Generating…" ? "Untitled BOQ" : boq.title}
+                      </p>
                       {processing && <span className="text-[11px] text-[#f59e0b] font-normal">⧗ Generating...</span>}
                       {!processing && statusBadge(boq)}
                     </div>
