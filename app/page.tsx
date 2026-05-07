@@ -37,7 +37,7 @@ export default function LandingPage() {
               <span className="text-amber-400">In minutes.</span>
             </h1>
             <p className="mt-6 mx-auto max-w-xl text-lg leading-relaxed text-gray-400">
-              Upload a Scope of Work. Get a structured, rated Bill of Quantities you can edit and export.
+              Upload your SoW and drawings. Get a structured, priced Bill of Quantities ready to edit and export — in under a minute.
               1,000 starter credits on every account.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
@@ -59,9 +59,9 @@ export default function LandingPage() {
           <DemoVideo />
           <div className="grid gap-6 md:grid-cols-3 mt-10">
             {[
-              { step: "01", title: "Upload scope", desc: "PDF or Word SOW. Drawings and schedules optional." },
-              { step: "02", title: "Generate BOQ", desc: "AI extracts items, quantities, and bill structure." },
-              { step: "03", title: "Review & export", desc: "Edit in-browser, then download rated Excel." },
+              { step: "01", title: "Upload your documents", desc: "SOW, drawings, schedules — drop them all in. Up to 6 files." },
+              { step: "02", title: "Generate BOQ", desc: "AI builds a structured, priced bill of quantities in under a minute." },
+              { step: "03", title: "Review & export", desc: "Edit line items in-browser, then download a rated Excel." },
             ].map((item) => (
               <div key={item.step} className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
                 <p className="font-mono text-3xl font-bold text-amber-400/30">{item.step}</p>
@@ -84,10 +84,10 @@ export default function LandingPage() {
               <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">What you get</p>
               <div className="mt-6 space-y-3">
                 {[
-                  "SOW → structured BOQ draft",
-                  "AI rates calibrated to Zambian market",
-                  "Edit line items in the browser",
-                  "Export original Excel with rates filled in",
+                  "SoW + drawings → fully structured BOQ",
+                  "ZMW rates calibrated to your province and project type",
+                  "Edit and approve line items in the browser",
+                  "Export a rated Excel ready for tender submission",
                 ].map((item) => (
                   <div key={item} className="flex items-start gap-3">
                     <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="currentColor" viewBox="0 0 20 20">

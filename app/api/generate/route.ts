@@ -87,74 +87,55 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { text, documents, suggest_rates, rate_context } = body as {
+    const { text, documents, rate_context } = body as {
       text?: string;
       documents?: GenerationInputDocument[];
-      suggest_rates?: boolean;
       rate_context?: import("@/lib/ai").RateContext;
-      is_sow?: boolean;
-      sow_warning?: string;
-      document_type?: string;
-      should_block_generation?: boolean;
     };
 
-    const primaryDocuments =
-      (documents?.filter((doc) => doc.role === "primary") ?? []).length > 0
-        ? documents!.filter((doc) => doc.role === "primary")
+    const allDocuments: GenerationInputDocument[] =
+      Array.isArray(documents) && documents.length > 0
+        ? documents
         : typeof text === "string"
-          ? [
-              {
-                document_id: "primary",
-                name: "Primary SOW",
-                role: "primary" as const,
-                document_type: "construction_sow" as const,
-                text,
-                pages: null,
-              },
-            ]
+          ? [{ document_id: "doc-1", name: "Document", role: "supporting" as const, document_type: "construction_sow" as const, text, pages: null }]
           : [];
 
-    if (primaryDocuments.length === 0) {
-      return NextResponse.json({ error: "primary document text is required" }, { status: 400 });
+    if (allDocuments.length === 0) {
+      return NextResponse.json({ error: "At least one document is required" }, { status: 400 });
     }
 
-    const hasUsableText = primaryDocuments.some((d) => typeof d.text === "string" && d.text.length >= 50);
+    const hasUsableText = allDocuments.some((d) => typeof d.text === "string" && d.text.length >= 50);
     if (!hasUsableText) {
       return NextResponse.json(
-        { error: "Text too short — could not extract meaningful content from PDF" },
+        { error: "Could not extract meaningful content from the uploaded documents" },
         { status: 400 }
       );
     }
 
-    // Concatenate primary docs for SOW validation (up to 5000 chars each)
-    const validationText = primaryDocuments
-      .map((d) => d.text.slice(0, 5000))
-      .join("\n\n");
+    // Validate across all docs — AI picks the strongest SOW signal from the bundle
+    const validationText = allDocuments
+      .map((d) => d.text.slice(0, 3000))
+      .join("\n\n---\n\n");
 
-    const supportingDocsCount = (documents ?? []).filter((doc) => doc.role === "supporting").length;
+    const supportingDocsCount = allDocuments.length - 1;
     const usageCollector: GeminiUsageCollector = { entries: [] };
 
     const validation = await validateSOW(validationText, {
       supportingDocsCount,
       usageCollector,
     });
-    const clientSaysNotSOW = body.is_sow === false;
-    if (!validation.isSOW || validation.should_block_generation || clientSaysNotSOW || body.should_block_generation) {
-      const reason =
-        validation.reason ||
-        body.sow_warning ||
-        "This document does not appear to be a construction Scope of Work suitable for BOQ generation.";
+    if (validation.should_block_generation) {
       return NextResponse.json(
         {
-          error: reason,
-          document_type: validation.documentType || body.document_type || "unknown",
+          error: validation.reason || "These documents can't be used to generate a BOQ.",
+          document_type: validation.documentType || "unknown",
         },
         { status: 422 }
       );
     }
 
     // Truncate to ~80k chars to stay within token limits
-    const truncatedDocuments = (documents ?? primaryDocuments).map((doc) => ({
+    const truncatedDocuments = allDocuments.map((doc) => ({
       ...doc,
       text:
         doc.text.length > 80000
@@ -165,7 +146,7 @@ export async function POST(req: NextRequest) {
     const boq = await generateBOQ(
       { documents: truncatedDocuments },
       {
-        suggestRates: suggest_rates ?? false,
+        suggestRates: true,
         rateContext: rate_context,
         documentClassification: validation,
         usageCollector,
