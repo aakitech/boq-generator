@@ -13,6 +13,7 @@ const pdfParse = require("pdf-parse") as (
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+export const maxRequestBodySize = "55mb";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB for all documents
 const MIN_DIRECT_TEXT_LENGTH = 120;
