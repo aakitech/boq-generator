@@ -58,8 +58,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ boq_id: boq.id, processing_status: "completed" });
     }
 
-    // Idempotency: already running
-    if (boq.processing_status === "processing" || boq.processing_status === "pending") {
+    // Idempotency: actively running (not just pending from ingest)
+    if (boq.processing_status === "processing") {
       return NextResponse.json({ boq_id: boq.id, processing_status: boq.processing_status });
     }
 

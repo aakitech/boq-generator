@@ -4,6 +4,7 @@ import { generateBOQ, validateSOW } from "@/lib/ai";
 import type { GenerationInputDocument, GeminiUsageCollector } from "@/lib/ai";
 import type { RateContext } from "@/lib/ai";
 import { creditsForGeneratedBoq, summarizeAIUsage, MAX_GENERATION_CREDITS } from "@/lib/gemini-pricing";
+import { consumeWalletCredits } from "@/lib/credits";
 import { trackEvent } from "@/lib/analytics";
 import { logger } from "@/lib/logger";
 import { sendBoqReadyEmail } from "@/lib/email/boq-ready";
@@ -97,6 +98,15 @@ export const generateBOQJob = inngest.createFunction(
         logger.error("generate-boq job: failed to save result", { boq_id, error: String(error) });
         throw new Error("Failed to save generated BOQ");
       }
+
+      await consumeWalletCredits(db, {
+        userId: user_id,
+        reason: "generate_boq",
+        referenceType: "boq",
+        referenceId: boq_id,
+        credits: generationCredits,
+        deltaUsd: usage.costUsd,
+      });
 
       trackEvent(user_id, "boq_generated_async", {
         boqId: saved.id,
