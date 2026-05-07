@@ -557,42 +557,47 @@ async function generateStructuredContent<T>({
     }
   }
 
-  // Gemini fallback — try selected model first, then flash on transient overload
+  // Gemini fallback — try each model up to MAX_ATTEMPTS_PER_MODEL times with backoff before moving on
   const geminiModels = Array.from(new Set([geminiModel, GEMINI_FAST_FALLBACK_MODEL]));
-  let lastGeminiError: unknown;
+  const geminiErrors: string[] = [];
   for (const gModel of geminiModels) {
-    try {
-      const generationConfig: Record<string, unknown> = {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema as any,
-        temperature,
-      };
-      const model = getGenAI().getGenerativeModel({
-        model: gModel,
-        systemInstruction,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        generationConfig: generationConfig as any,
-      });
-      const result = await model.generateContent(prompt);
-      recordGeminiUsage(usageCollector, gModel, usageOperation ?? "structured_content", result.response.usageMetadata);
-      return parseJsonResponse<T>(result.response.text());
-    } catch (geminiError) {
-      lastGeminiError = geminiError;
-      const msg = geminiError instanceof Error ? geminiError.message : String(geminiError);
-      if (
-        msg.includes("503") ||
-        msg.includes("overloaded") ||
-        msg.includes("high demand") ||
-        msg.includes("unavailable")
-      ) {
-        continue;
+    let lastModelError: unknown;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+      try {
+        const generationConfig: Record<string, unknown> = {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema as any,
+          temperature,
+        };
+        const model = getGenAI().getGenerativeModel({
+          model: gModel,
+          systemInstruction,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          generationConfig: generationConfig as any,
+        });
+        const result = await model.generateContent(prompt);
+        recordGeminiUsage(usageCollector, gModel, usageOperation ?? "structured_content", result.response.usageMetadata);
+        return parseJsonResponse<T>(result.response.text());
+      } catch (geminiError) {
+        lastModelError = geminiError;
+        const msg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+        const isTransient =
+          msg.includes("503") ||
+          msg.includes("overloaded") ||
+          msg.includes("high demand") ||
+          msg.includes("unavailable");
+        if (isTransient && attempt < MAX_ATTEMPTS_PER_MODEL) {
+          await new Promise((r) => setTimeout(r, HIGH_DEMAND_RETRY_BASE_MS * attempt));
+          continue;
+        }
+        if (!isTransient) break;
       }
-      break;
     }
+    const modelMsg = lastModelError instanceof Error ? lastModelError.message : String(lastModelError);
+    geminiErrors.push(`${gModel}: ${modelMsg}`);
   }
   const openAIMsg = lastOpenAIError instanceof Error ? lastOpenAIError.message : String(lastOpenAIError);
-  const geminiMsg = lastGeminiError instanceof Error ? lastGeminiError.message : String(lastGeminiError);
-  throw new Error(`OpenAI failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMsg}. Gemini fallback failed: ${geminiMsg}`);
+  throw new Error(`OpenAI failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMsg}. Gemini fallback failed — ${geminiErrors.join(" | ")}`);
 }
 
 function detectRequiredAttachments(text: string): RequiredAttachment[] {
