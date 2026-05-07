@@ -2,12 +2,10 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Progress } from "@/components/ui/progress";
 import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
-import BOQPricingCard from "@/components/BOQPricingCard";
 import CreditBadge from "@/components/CreditBadge";
-import ManualPaymentOptions from "@/components/ManualPaymentOptions";
+import TopUpModal from "@/components/TopUpModal";
 import { useCredits } from "@/components/CreditsProvider";
 import GenerateBOQTab from "@/components/upload/GenerateBOQTab";
 import { RateAssumptions, DEFAULT_CONTEXT, type RateContext } from "@/components/upload/RateAssumptions";
@@ -16,7 +14,7 @@ type Tab = "generate" | "rate";
 
 // ─── Rate Existing BOQ Tab ───────────────────────────────────────────────────
 
-type RateStage = "idle" | "validating" | "questions" | "ready" | "paying" | "error";
+type RateStage = "idle" | "validating" | "questions" | "ready" | "submitting" | "error";
 
 interface BOQPreview {
   totalItems: number;
@@ -25,43 +23,16 @@ interface BOQPreview {
   amountColumnHeader: string | null;
 }
 
-const PAYMENT_MODE =
-  process.env.NEXT_PUBLIC_PAYMENT_PROVIDER === "manual_whatsapp"
-    ? process.env.NODE_ENV === "production"
-      ? "manual_whatsapp"
-      : "hybrid"
-    : "stripe";
-
-function openPendingExternalWindow() {
-  const popup = window.open("about:blank", "_blank");
-  if (popup) popup.opener = null;
-  return popup;
-}
-
-function resolveExternalWindow(popup: Window | null, url: string) {
-  if (popup) { popup.location.href = url; return; }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
-function closePendingExternalWindow(popup: Window | null) {
-  if (popup && !popup.closed) popup.close();
-}
-
 function RateBOQTab() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<RateStage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [storageKey, setStorageKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<BOQPreview | null>(null);
   const [rateBoqId, setRateBoqId] = useState<string | null>(null);
-  const [rateAmountCents, setRateAmountCents] = useState<number>(3000);
   const [ctx, setCtx] = useState<RateContext>(DEFAULT_CONTEXT);
-  const [manualPaymentRequested, setManualPaymentRequested] = useState(false);
-  const [manualPaymentContact, setManualPaymentContact] = useState<string | null>(null);
-  const [manualPaymentUrl, setManualPaymentUrl] = useState<string | null>(null);
-  const [manualPaymentDetails, setManualPaymentDetails] = useState<string | null>(null);
+  const [showTopUp, setShowTopUp] = useState(false);
   const ph = usePostHog();
   const { remainingCredits } = useCredits();
 
@@ -76,12 +47,7 @@ function RateBOQTab() {
     setFile(f);
     setStage("idle");
     setError(null);
-    setStorageKey(null);
     setPreview(null);
-    setManualPaymentRequested(false);
-    setManualPaymentContact(null);
-    setManualPaymentUrl(null);
-    setManualPaymentDetails(null);
   }
 
   async function handleValidate() {
@@ -96,11 +62,9 @@ function RateBOQTab() {
         const { error: e } = await res.json();
         throw new Error(e || "Validation failed");
       }
-      const { storageKey: key, preview: p, boq_id: bid, amountCents: ac } = await res.json();
-      setStorageKey(key);
+      const { preview: p, boq_id: bid } = await res.json();
       setPreview(p);
       setRateBoqId(bid ?? null);
-      setRateAmountCents(ac ?? 3000);
       ph.capture("excel_boq_uploaded", { total_items: p.totalItems, missing_rate_count: p.missingRateCount });
       setStage("questions");
     } catch (err) {
@@ -115,92 +79,51 @@ function RateBOQTab() {
     setStage("ready");
   }
 
-  async function handleCheckout() {
-    if (!preview) return;
-    localStorage.setItem("boq_type", "rate_boq");
-    localStorage.setItem("boq_rate_context", JSON.stringify(ctx));
-    setStage("paying");
+  async function handleRate() {
+    if (!rateBoqId) return;
+    setStage("submitting");
     setError(null);
-
-    if (remainingCredits > 0 && rateBoqId) {
-      router.push(`/generating?boq_id=${encodeURIComponent(rateBoqId)}&pay=credits&type=rate_boq`);
-      return;
-    }
-
-    if (PAYMENT_MODE !== "stripe") {
-      if (!rateBoqId) {
-        setStage("ready");
-        setError("Manual payment needs a saved preview BOQ. Please upload the file again.");
-        return;
-      }
-      const pendingWindow = openPendingExternalWindow();
-      try {
-        const res = await fetch("/api/manual-payment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ boq_id: rateBoqId, type: "rate_boq" }),
-        });
-        const body = (await res.json()) as { error?: string; whatsappUrl?: string; contact?: string; paymentDetails?: string };
-        if (!res.ok || !body.whatsappUrl) throw new Error(body.error || "Could not start manual payment");
-        setManualPaymentRequested(true);
-        setManualPaymentContact(body.contact ?? null);
-        setManualPaymentUrl(body.whatsappUrl);
-        setManualPaymentDetails(body.paymentDetails ?? null);
-        ph.capture("manual_payment_requested", { type: "rate_boq", province: ctx.province, boqId: rateBoqId });
-        resolveExternalWindow(pendingWindow, body.whatsappUrl);
-        setStage("ready");
-        return;
-      } catch (err) {
-        closePendingExternalWindow(pendingWindow);
-        setStage("ready");
-        const msg = err instanceof Error ? err.message : "Something went wrong";
-        setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
-        return;
-      }
-    }
-
-    ph.capture("payment_initiated", { type: "rate_boq", province: ctx.province, boqId: rateBoqId });
     try {
-      const checkoutBody = rateBoqId
-        ? { type: "rate_boq", boq_id: rateBoqId }
-        : { type: "rate_boq", storageKey, rateColHeader: preview.rateColumnHeader ?? "", amountColHeader: preview.amountColumnHeader ?? "" };
-      const res = await fetch("/api/checkout", {
+      const res = await fetch("/api/rate-boq", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(checkoutBody),
+        body: JSON.stringify({ boq_id: rateBoqId, rate_context: ctx }),
       });
+      if (res.status === 402) {
+        setShowTopUp(true);
+        setStage("ready");
+        return;
+      }
       if (!res.ok) {
         const { error: e } = await res.json();
-        throw new Error(e || "Could not create payment session");
+        throw new Error(e || "Could not start rating job");
       }
-      const { url } = await res.json();
-      window.location.href = url;
+      const { boq_id } = await res.json();
+      router.push(`/generating?boq_id=${encodeURIComponent(boq_id)}`);
     } catch (err) {
-      setStage("error");
+      setStage("ready");
       const msg = err instanceof Error ? err.message : "Something went wrong";
       setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
     }
   }
 
-  const isProcessing = stage === "validating" || stage === "paying";
-
   // ── Questions form ────────────────────────────────────────────────────────
   if (stage === "questions") {
     return (
       <div className="space-y-6">
-        <div className="text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-green-500/30 bg-green-500/10 text-green-400 text-xs font-medium mb-3">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded border border-emerald-500/20 bg-emerald-500/8 text-emerald-400 text-xs font-medium mb-3">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
             {preview?.totalItems} items · {preview?.missingRateCount} missing rates
           </div>
-          <h2 className="text-xl font-bold text-white">Tell us about the project</h2>
+          <h2 className="font-serif text-xl text-white">Tell us about the project</h2>
         </div>
         <RateAssumptions ctx={ctx} onChange={setCtx} defaultOpen />
         <button
           onClick={handleQuestionsSubmit}
-          className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors"
+          className="w-full py-3 rounded bg-[#f59e0b] hover:bg-[#fbbf24] text-black font-semibold text-sm transition-colors"
         >
           Continue →
         </button>
@@ -208,13 +131,15 @@ function RateBOQTab() {
     );
   }
 
-  // ── Ready / paying ────────────────────────────────────────────────────────
-  if (stage === "ready" || stage === "paying") {
+  // ── Ready / submitting ────────────────────────────────────────────────────
+  if (stage === "ready" || stage === "submitting") {
     return (
-      <div className="text-center space-y-6">
+      <div className="space-y-4">
+        {showTopUp && <TopUpModal onClose={() => setShowTopUp(false)} />}
+
         <div>
-          <h2 className="text-2xl font-bold tracking-tight mb-3">Ready to rate</h2>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-green-500/30 bg-green-500/10 text-green-400 text-xs font-medium">
+          <h2 className="font-serif text-xl text-white mb-2">Ready to rate</h2>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded border border-emerald-500/20 bg-emerald-500/8 text-emerald-400 text-xs font-medium">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
@@ -223,96 +148,51 @@ function RateBOQTab() {
         </div>
 
         {error && (
-          <div className="px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-sm text-left">{error}</div>
+          <div className="px-4 py-3 rounded border border-red-500/20 bg-red-500/8 text-red-400 text-sm">{error}</div>
         )}
 
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-white/[0.03] border border-white/10 text-left">
-          <div className="w-8 h-8 rounded bg-green-500/20 flex items-center justify-center shrink-0">
-            <ExcelIcon className="w-4 h-4 text-green-400" />
+        <div className="flex items-center gap-3 px-4 py-3 rounded border border-white/8 bg-white/2">
+          <div className="w-8 h-8 rounded bg-emerald-500/15 flex items-center justify-center shrink-0">
+            <ExcelIcon className="w-4 h-4 text-emerald-400" />
           </div>
           <p className="text-sm text-white truncate flex-1">{file?.name}</p>
-          <button className="text-xs text-gray-500 hover:text-gray-300 shrink-0" onClick={() => setStage("questions")}>
+          <button className="text-xs text-[#555] hover:text-white" onClick={() => setStage("questions")}>
             Edit answers
           </button>
         </div>
 
-        {remainingCredits > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
-            <CreditBadge remainingCredits={remainingCredits} />
+        {remainingCredits < 500 && (
+          <div className="px-4 py-3 rounded border border-[#f59e0b]/20 bg-[#f59e0b]/5 text-xs text-[#f59e0b]">
+            You need at least 500 credits to rate a BOQ.{" "}
+            <button className="underline" onClick={() => setShowTopUp(true)}>Top up credits</button>
           </div>
         )}
 
-        {remainingCredits > 0 || PAYMENT_MODE === "stripe" ? (
-          <button
-            className="w-full py-3.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-            onClick={handleCheckout}
-            disabled={stage === "paying"}
-          >
-            {stage === "paying" ? (
-              <>
-                <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
-                {remainingCredits > 0 ? "Unlocking…" : "Opening checkout…"}
-              </>
-            ) : remainingCredits > 0 ? "Unlock with Credits →" : `Pay $${(rateAmountCents / 100).toFixed(0)} & Add Rates →`}
-          </button>
-        ) : (
-          <ManualPaymentOptions
-            priceDisplay={`$${(rateAmountCents / 100).toFixed(0)}`}
-            onWhatsAppPayment={handleCheckout}
-            requesting={stage === "paying"}
-            requested={manualPaymentRequested}
-            contactLabel={manualPaymentContact}
-            whatsappUrl={manualPaymentUrl}
-            paymentDetails={manualPaymentDetails}
-            onCardPayment={async () => {
-              if (!preview) return;
-              localStorage.setItem("boq_type", "rate_boq");
-              localStorage.setItem("boq_rate_context", JSON.stringify(ctx));
-              setStage("paying");
-              setError(null);
-              try {
-                const checkoutBody = rateBoqId
-                  ? { type: "rate_boq", boq_id: rateBoqId }
-                  : { type: "rate_boq", storageKey, rateColHeader: preview.rateColumnHeader ?? "", amountColHeader: preview.amountColumnHeader ?? "" };
-                const res = await fetch("/api/checkout", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(checkoutBody),
-                });
-                if (!res.ok) {
-                  const { error: e } = await res.json();
-                  throw new Error(e || "Could not create payment session");
-                }
-                const { url } = await res.json();
-                window.location.href = url;
-              } catch (err) {
-                setStage("ready");
-                const msg = err instanceof Error ? err.message : "Something went wrong";
-                setError(msg === "Failed to fetch" ? "Network error. Check your connection and try again." : msg);
-              }
-            }}
-            cardEnabled={PAYMENT_MODE === "hybrid"}
-            cardRequesting={stage === "paying"}
-          />
-        )}
-
-        {stage === "paying" && (remainingCredits > 0 || PAYMENT_MODE === "stripe" || PAYMENT_MODE === "hybrid") && (
-          <div className="space-y-2">
-            <Progress value={92} className="h-1.5 bg-white/10" />
-            <p className="text-xs text-gray-400">{remainingCredits > 0 ? "Unlocking…" : "Redirecting to Stripe…"}</p>
-          </div>
-        )}
+        <button
+          className="w-full py-3 rounded bg-[#f59e0b] hover:bg-[#fbbf24] text-black font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+          onClick={handleRate}
+          disabled={stage === "submitting" || remainingCredits < 500}
+        >
+          {stage === "submitting" ? (
+            <>
+              <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/50 border-t-transparent animate-spin" />
+              Starting…
+            </>
+          ) : "Add Rates →"}
+        </button>
       </div>
     );
   }
 
   // ── Upload screen ─────────────────────────────────────────────────────────
+  const isValidating = stage === "validating";
+
   return (
     <>
       <div
-        className={`relative rounded-xl border-2 border-dashed transition-colors cursor-pointer p-10 text-center
-          ${dragging ? "border-amber-400 bg-amber-500/5" : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"}`}
-        onClick={() => !isProcessing && fileInputRef.current?.click()}
+        className={`relative rounded border-2 border-dashed transition-colors cursor-pointer p-10 text-center
+          ${dragging ? "border-[#f59e0b] bg-[#f59e0b]/5" : "border-white/10 bg-white/2 hover:border-white/20 hover:bg-white/4"}`}
+        onClick={() => !isValidating && fileInputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
@@ -326,16 +206,16 @@ function RateBOQTab() {
         />
         {file ? (
           <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-green-500/20 flex items-center justify-center">
-              <ExcelIcon className="w-6 h-6 text-green-400" />
+            <div className="w-12 h-12 rounded bg-emerald-500/15 flex items-center justify-center">
+              <ExcelIcon className="w-6 h-6 text-emerald-400" />
             </div>
             <div>
               <p className="font-medium text-sm text-white truncate max-w-xs">{file.name}</p>
-              <p className="text-xs text-gray-500 mt-1">{(file.size / 1024).toFixed(0)} KB</p>
+              <p className="text-xs text-[#555] mt-1">{(file.size / 1024).toFixed(0)} KB</p>
             </div>
-            {!isProcessing && (
+            {!isValidating && (
               <button
-                className="text-xs text-gray-500 hover:text-gray-300 underline mt-1"
+                className="text-xs text-[#555] hover:text-[#888] underline mt-1"
                 onClick={(e) => { e.stopPropagation(); setFile(null); setStage("idle"); setError(null); }}
               >
                 Remove
@@ -344,45 +224,36 @@ function RateBOQTab() {
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center">
-              <ExcelIcon className="w-6 h-6 text-gray-400" />
+            <div className="w-12 h-12 rounded bg-white/5 flex items-center justify-center">
+              <ExcelIcon className="w-6 h-6 text-[#555]" />
             </div>
             <div>
-              <p className="font-medium text-sm text-white">Drop your BOQ Excel here</p>
-              <p className="text-xs text-gray-500 mt-1">Excel (.xlsx or .xls) · max 50 MB</p>
+              <p className="text-sm text-white font-medium">Drop your BOQ Excel here</p>
+              <p className="text-xs text-[#555] mt-1">Excel (.xlsx or .xls) · max 50 MB</p>
             </div>
           </div>
         )}
       </div>
 
-      {isProcessing && (
-        <div className="mt-6 space-y-2">
-          <Progress value={stage === "validating" ? 60 : 90} className="h-1.5 bg-white/10" />
-          <p className="text-sm text-gray-400 text-center">
-            {stage === "validating" ? "Reading your BOQ…" : "Redirecting to payment…"}
-          </p>
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+      {stage === "error" && error && (
+        <div className="mt-4 px-4 py-3 rounded border border-red-500/20 bg-red-500/8 text-red-400 text-sm">{error}</div>
       )}
 
       <button
-        className={`mt-6 w-full py-3 rounded-lg font-semibold text-sm transition-all
-          ${file && !isProcessing ? "bg-amber-400 hover:bg-amber-300 text-black cursor-pointer" : "bg-white/5 text-gray-600 cursor-not-allowed"}`}
-        disabled={!file || isProcessing}
+        className={`mt-4 w-full py-3 rounded font-semibold text-sm transition-colors
+          ${file && !isValidating ? "bg-[#f59e0b] hover:bg-[#fbbf24] text-black" : "bg-white/5 text-[#555] cursor-not-allowed"}`}
+        disabled={!file || isValidating}
         onClick={handleValidate}
       >
-        {isProcessing ? (
-          <span className="inline-flex items-center gap-2">
+        {isValidating ? (
+          <span className="inline-flex items-center justify-center gap-2">
             <span className="w-3.5 h-3.5 rounded-full border-2 border-black/40 border-t-transparent animate-spin" />
-            Validating...
+            Validating…
           </span>
         ) : "Continue →"}
       </button>
 
-      <p className="mt-8 text-center text-xs text-gray-600">Excel (.xlsx or .xls) · ZMW rates calibrated to your location</p>
+      <p className="mt-6 text-center text-xs text-[#444]">Excel (.xlsx or .xls) · ZMW rates calibrated to your location</p>
     </>
   );
 }
@@ -395,58 +266,51 @@ export default function UploadPage() {
   const { remainingCredits, loadingCredits } = useCredits();
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16">
-      <nav className="fixed top-0 left-0 right-0 z-20 border-b border-white/5 bg-[#0f0f0f]/80 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <a href="/">
-            <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
-          </a>
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen flex flex-col bg-[#0a0a0a]">
+      <nav className="fixed top-0 left-0 right-0 z-20 border-b border-white/5 bg-[#0a0a0a]/95 backdrop-blur">
+        <div className="max-w-[960px] mx-auto px-6 py-3 flex items-center justify-between">
+          <a href="/" className="font-serif text-white text-lg tracking-tight">BOQ Generator</a>
+          <div className="flex items-center gap-4">
             {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} /> : null}
-            <a href="/dashboard" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              My BOQs →
+            <a href="/dashboard" className="text-xs text-[#555] hover:text-white transition-colors">
+              My BOQs
             </a>
           </div>
         </div>
       </nav>
 
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-amber-500/10 rounded-full blur-[120px]" />
-      </div>
+      <main className="flex-1 flex items-center justify-center px-6 py-24">
+        <div className="w-full max-w-lg animate-fade-up">
+          <div className="mb-8">
+            <h1 className="font-serif text-3xl text-white tracking-tight mb-1">Upload your documents</h1>
+            <p className="text-sm text-[#555]">Generate a new BOQ or add rates to an existing one.</p>
+          </div>
 
-      <div className="relative z-10 w-full max-w-xl animate-fade-up">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold tracking-tight mb-3">
-            BOQ <span className="text-amber-400">Generator</span>
-          </h1>
+          <div className="flex rounded border border-white/8 bg-white/2 p-1 mb-6">
+            <button
+              className={`flex-1 py-2 px-4 rounded text-xs font-medium transition-colors ${
+                activeTab === "generate" ? "bg-[#f59e0b] text-black" : "text-[#666] hover:text-white"
+              }`}
+              onClick={() => setActiveTab("generate")}
+            >
+              Generate BOQ
+            </button>
+            <button
+              className={`flex-1 py-2 px-4 rounded text-xs font-medium transition-colors ${
+                activeTab === "rate" ? "bg-[#f59e0b] text-black" : "text-[#666] hover:text-white"
+              }`}
+              onClick={() => setActiveTab("rate")}
+            >
+              Rate a BOQ
+            </button>
+          </div>
+
+          {activeTab === "generate" ? <GenerateBOQTab /> : <RateBOQTab />}
         </div>
+      </main>
 
-        <div className="flex rounded-lg border border-white/10 bg-white/[0.02] p-1 mb-8">
-          <button
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-              activeTab === "generate" ? "bg-amber-400 text-black" : "text-gray-400 hover:text-white"
-            }`}
-            onClick={() => setActiveTab("generate")}
-          >
-            Generate BOQ
-          </button>
-          <button
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-              activeTab === "rate" ? "bg-amber-400 text-black" : "text-gray-400 hover:text-white"
-            }`}
-            onClick={() => setActiveTab("rate")}
-          >
-            Rate a BOQ
-          </button>
-        </div>
-
-        {activeTab === "generate" ? <GenerateBOQTab /> : <RateBOQTab />}
-      </div>
-
-      <div className="w-full max-w-xl mt-16">
-        <Footer />
-      </div>
-    </main>
+      <Footer />
+    </div>
   );
 }
 

@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
+import { Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import PostHogProvider from "@/components/PostHogProvider";
 import { CreditsProvider } from "@/components/CreditsProvider";
+
+const instrumentSerif = Instrument_Serif({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-serif",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "BOQ Generator — AI-powered Bill of Quantities",
@@ -23,7 +31,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${GeistSans.variable} font-sans antialiased bg-[#0f0f0f] text-white`}>
+      <body className={`${GeistSans.variable} ${instrumentSerif.variable} font-sans antialiased bg-[#0a0a0a] text-white`}>
         <PostHogProvider>
           <CreditsProvider>{children}</CreditsProvider>
         </PostHogProvider>

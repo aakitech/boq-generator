@@ -5,7 +5,6 @@ import { extractWorkbookBOQ } from "@/lib/excel";
 import { randomUUID } from "crypto";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
-import { getTierForItemCount, loadRateTiers } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -118,18 +117,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Compute pricing tier based on item count (no rates to sum yet)
-    const rateTiers = loadRateTiers();
-    const pricingTier = getTierForItemCount(measurableItems.length, rateTiers);
-
-    // Save a preview BOQ row so the boq_id can be passed through checkout → rate-boq
+    // Save a preview BOQ row so the boq_id can be passed through to rate-boq
     const { data: previewBoq, error: dbError } = await serviceClient
       .from("boqs")
       .insert({
         user_id: user.id,
         title: file.name.replace(/\.[^/.]+$/, "") || "Untitled BOQ",
         data: workbookBoq,
-        payment_status: "preview",
+        payment_status: "paid",
         processing_status: "pending",
         source_excel_key: storageKey,
         rate_col_header: workbookPreservation?.rate_column_header ?? null,
@@ -146,14 +141,11 @@ export async function POST(req: NextRequest) {
     trackEvent(user.id, "excel_ingested", {
       totalItems: measurableItems.length,
       missingRateCount,
-      pricingTier: pricingTier.label,
-      amountCents: pricingTier.usdCents,
     });
 
     return NextResponse.json({
       storageKey,
       boq_id: previewBoq?.id ?? null,
-      amountCents: pricingTier.usdCents,
       preview: {
         totalItems: measurableItems.length,
         missingRateCount,

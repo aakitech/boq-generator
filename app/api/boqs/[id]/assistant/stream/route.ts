@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import type { BOQDocument } from "@/lib/types";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { proposeBOQEditWithAI, streamAssistantSummary, buildConversationContext, type AssistantUsageCollector, type ChatMessage } from "@/lib/boq-assistant";
-import { consumeWalletCredits } from "@/lib/credits";
+import { getRemainingCredits } from "@/lib/credits";
 import { summarizeAIUsage } from "@/lib/gemini-pricing";
 import { trackEvent } from "@/lib/analytics";
 
@@ -150,43 +150,20 @@ export async function POST(
 
         const diff = buildDiffSummary(sourceBoq, result.proposed_boq);
         const usageSummary = summarizeAIUsage(usageCollector.entries);
-        const assistantCredits = Math.max(usageSummary.creditsCharged, 1);
-        const creditResult = await consumeWalletCredits(serviceClient, {
-          userId: user.id,
-          reason: "assistant_boq",
-          referenceType: "boq",
-          referenceId: `${id}:${Date.now()}`,
-          credits: assistantCredits,
-          deltaUsd: usageSummary.costUsd,
-          metadata: {
-            ai_cost_usd: usageSummary.costUsd,
-            ai_input_tokens: usageSummary.inputTokens,
-            ai_output_tokens: usageSummary.outputTokens,
-            ai_total_tokens: usageSummary.totalTokens,
-            billed_credits: assistantCredits,
-          },
-        });
+        const remainingCredits = await getRemainingCredits(serviceClient, user.id);
 
-        if (creditResult.status === "insufficient") {
-          write("error", { message: "Not enough credits for this edit.", status: 402 });
-          controller.close();
-          return;
-        }
-
-        trackEvent(user.id, "credit_consumed", {
-          reason: "assistant_boq",
+        trackEvent(user.id, "assistant_edit", {
           boqId: id,
-          remainingCredits: creditResult.remainingCredits,
-          creditsCharged: assistantCredits,
           aiCostUsd: usageSummary.costUsd,
+          remainingCredits,
         });
 
         write("result", {
           summary: result.summary,
           proposed_boq: result.proposed_boq,
           diff,
-          remainingCredits: creditResult.remainingCredits,
-          creditsCharged: assistantCredits,
+          remainingCredits,
+          creditsCharged: 0,
         });
         write("done", { ok: true });
       } catch (err) {

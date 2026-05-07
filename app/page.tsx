@@ -1,20 +1,19 @@
 import Footer from "@/components/Footer";
-import DemoVideo from "@/components/DemoVideo";
 import WaitlistForm from "@/components/WaitlistForm";
+import DemoVideo from "@/components/DemoVideo";
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0a0a]">
-      <nav className="fixed top-0 left-0 right-0 z-20 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <a href="/">
-            <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="120" height="28" />
-          </a>
-          <div className="flex items-center gap-3 sm:gap-4">
-            <a href="/dashboard" className="hidden text-xs text-gray-400 transition-colors hover:text-white sm:block">
-              Dashboard
-            </a>
-            <a href="/upload" className="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10">
+      <nav className="fixed top-0 left-0 right-0 z-20 border-b border-[#262626] bg-[#0a0a0a]/92 backdrop-blur">
+        <div className="mx-auto flex max-w-[960px] items-center justify-between px-6" style={{ height: 48 }}>
+          <div className="flex items-center gap-2 text-[13px] font-medium text-[#f5f5f5]">
+            <div className="w-[7px] h-[7px] rounded-full bg-[#f59e0b]" />
+            BOQ Generator
+          </div>
+          <div className="flex items-center gap-4">
+            <a href="/dashboard" className="text-[12px] text-[#737373] hover:text-[#f5f5f5] transition-colors hidden sm:block">Dashboard</a>
+            <a href="/upload" className="rounded bg-[#f59e0b] hover:bg-[#fbbf24] px-4 py-2 text-[13px] font-semibold text-black transition-colors">
               Try for free
             </a>
           </div>
@@ -23,66 +22,74 @@ export default function LandingPage() {
 
       <main className="flex-1">
         {/* Hero */}
-        <section className="relative px-4 pb-20 pt-36 sm:pb-24 sm:pt-40">
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute left-1/2 top-24 h-[520px] w-[760px] -translate-x-1/2 rounded-full bg-amber-500/10 blur-[150px]" />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.10),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_55%)]" />
-          </div>
-          <div className="relative z-10 mx-auto max-w-3xl text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-              Built for Southern African construction
-            </div>
-            <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
-              SOW to tender-ready BOQ.<br />
-              <span className="text-amber-400">In minutes.</span>
-            </h1>
-            <p className="mt-6 mx-auto max-w-xl text-lg leading-relaxed text-gray-400">
-              Upload your SoW and drawings. Get a structured, priced Bill of Quantities ready to edit and export — in under a minute.
-              1,000 starter credits on every account.
+        <section className="px-6 pt-36 pb-20 sm:pt-44 sm:pb-28">
+          <div className="mx-auto max-w-[960px]">
+            <p className="text-[11px] font-medium tracking-[0.1em] uppercase text-[#f59e0b] mb-5">
+              BOQ Generator · Precision tooling for QSs
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
-              <a href="/upload" className="rounded-xl bg-amber-400 px-8 py-4 text-base font-bold text-black transition-colors hover:bg-amber-300">
-                Try for free
+            <h1 className="font-serif text-[clamp(36px,5.5vw,60px)] leading-[1.08] font-normal tracking-[-0.025em] max-w-[640px] mb-5">
+              Precision tooling for <em className="not-italic italic text-[#737373]">Quantity Surveyors</em> across Southern Africa.
+            </h1>
+            <p className="text-[15px] text-[#737373] max-w-[440px] leading-relaxed mb-8">
+              Upload your SoW and drawings. Get a structured, priced Bill of Quantities in under a minute — calibrated to your province and project type.
+            </p>
+            <div className="flex gap-3 items-center">
+              <a href="/upload" className="rounded bg-[#f59e0b] hover:bg-[#fbbf24] px-5 py-[10px] text-[13px] font-semibold text-black transition-colors">
+                Generate BOQ →
               </a>
-              <a href="#waitlist" className="rounded-xl bg-white/5 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10">
-                Join the waitlist
+              <a href="#updates" className="rounded border border-[#262626] hover:bg-[#111] px-5 py-[10px] text-[13px] text-[#737373] transition-colors">
+                Stay updated
               </a>
+            </div>
+            <div className="mt-12 pt-10 border-t border-[#262626] flex gap-10">
+              <div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">ZMW</div>
+                <div className="text-[11px] text-[#737373] mt-0.5">Zambian rates built in</div>
+              </div>
+              <div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">&lt;60s</div>
+                <div className="text-[11px] text-[#737373] mt-0.5">Generation time</div>
+              </div>
+              <div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">.xlsx</div>
+                <div className="text-[11px] text-[#737373] mt-0.5">Tender-ready export</div>
+              </div>
             </div>
           </div>
         </section>
 
         {/* How it works */}
-        <section id="how-it-works" className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
-          <div className="mb-10 text-center">
-            <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-400/80">How it works</p>
+        <section className="border-t border-[#1c1c1c] mx-auto max-w-[960px] px-6 py-16 sm:py-20">
+          <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-[#404040] mb-8">How it works</p>
+          <div className="mb-10">
+            <DemoVideo />
           </div>
-          <DemoVideo />
-          <div className="grid gap-6 md:grid-cols-3 mt-10">
+          <div className="grid gap-4 md:grid-cols-3">
             {[
-              { step: "01", title: "Upload your documents", desc: "SOW, drawings, schedules — drop them all in. Up to 6 files." },
-              { step: "02", title: "Generate BOQ", desc: "AI builds a structured, priced bill of quantities in under a minute." },
-              { step: "03", title: "Review & export", desc: "Edit line items in-browser, then download a rated Excel." },
+              { step: "01", title: "Upload your documents", desc: "SoW, drawings, schedules — drop them all in. Up to 6 files, 50 MB each." },
+              { step: "02", title: "Generate BOQ", desc: "AI builds a structured, priced bill of quantities. Runs in the background — no waiting." },
+              { step: "03", title: "Review & export", desc: "Edit line items in-browser, chat with the assistant, then download a rated Excel." },
             ].map((item) => (
-              <div key={item.step} className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
-                <p className="font-mono text-3xl font-bold text-amber-400/30">{item.step}</p>
-                <h3 className="mt-4 text-lg font-semibold text-white">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-gray-400">{item.desc}</p>
+              <div key={item.step} className="rounded-[8px] border border-[#262626] bg-[#111] p-6">
+                <p className="font-mono text-[24px] font-bold text-[#262626] mb-4">{item.step}</p>
+                <h3 className="text-[13px] font-semibold text-[#f5f5f5] mb-2">{item.title}</h3>
+                <p className="text-[12px] leading-relaxed text-[#737373]">{item.desc}</p>
               </div>
             ))}
           </div>
-          <div className="mt-10 text-center">
-            <a href="/upload" className="inline-flex rounded-xl bg-amber-400 px-8 py-4 text-base font-semibold text-black transition-colors hover:bg-amber-300">
+          <div className="mt-8 text-center">
+            <a href="/upload" className="inline-block rounded bg-[#f59e0b] hover:bg-[#fbbf24] px-8 py-3 text-[13px] font-semibold text-black transition-colors">
               Try for free
             </a>
           </div>
         </section>
 
-        {/* Features + Audience */}
-        <section className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-8">
-              <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">What you get</p>
-              <div className="mt-6 space-y-3">
+        {/* What you get / Who it's for */}
+        <section className="border-t border-[#1c1c1c] mx-auto max-w-[960px] px-6 py-12 sm:py-14">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[8px] border border-[#262626] bg-[#111] p-6">
+              <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-[#404040] mb-5">What you get</p>
+              <div className="space-y-3">
                 {[
                   "SoW + drawings → fully structured BOQ",
                   "ZMW rates calibrated to your province and project type",
@@ -90,25 +97,25 @@ export default function LandingPage() {
                   "Export a rated Excel ready for tender submission",
                 ].map((item) => (
                   <div key={item} className="flex items-start gap-3">
-                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-[#f59e0b]" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
                     </svg>
-                    <span className="text-sm text-gray-300">{item}</span>
+                    <span className="text-[13px] text-[#d4d4d4]">{item}</span>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8">
-              <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">Who it&apos;s for</p>
-              <div className="mt-6 space-y-3">
+            <div className="rounded-[8px] border border-[#262626] bg-[#111] p-6">
+              <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-[#404040] mb-5">Who it&apos;s for</p>
+              <div className="space-y-2">
                 {[
                   "Contractors preparing tender submissions",
                   "Estimators who need faster first drafts",
                   "QS consultants who want cleaner BOQ structure",
                   "Project teams comparing early pricing options",
                 ].map((item) => (
-                  <div key={item} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                    <p className="text-sm text-gray-300">{item}</p>
+                  <div key={item} className="rounded border border-[#262626] px-4 py-3">
+                    <p className="text-[13px] text-[#d4d4d4]">{item}</p>
                   </div>
                 ))}
               </div>
@@ -117,37 +124,29 @@ export default function LandingPage() {
         </section>
 
         {/* Pricing */}
-        <section className="mx-auto max-w-6xl px-4 py-10 pb-24 text-center">
-          <h2 className="text-2xl font-bold text-white mb-2">Pricing</h2>
-          <p className="text-gray-400 text-sm mb-10">Start free. Pay per BOQ once credits are used.</p>
-          <div className="inline-block rounded-2xl border border-amber-500/30 bg-[#0f0f0f] p-8 text-left min-w-[280px]">
-            <p className="text-5xl font-bold text-amber-400 mb-1">$20 – $500</p>
-            <p className="text-gray-400 text-sm mb-6">one-time per BOQ · based on project size</p>
-            <ul className="space-y-2 mb-8">
-              {["Structured BOQ", "In-browser editing", "Excel export", "Saved to your account"].map((item) => (
-                <li key={item} className="flex items-center gap-2 text-sm text-gray-300">
-                  <svg className="w-4 h-4 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                  </svg>
-                  {item}
-                </li>
-              ))}
-            </ul>
-            <a href="/upload" className="block w-full py-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-bold text-sm text-center transition-colors">
-              Try for free
-            </a>
+        <section className="border-t border-[#1c1c1c] mx-auto max-w-[960px] px-6 py-12 pb-24">
+          <h2 className="font-serif text-[28px] font-normal text-[#f5f5f5] mb-2">Pricing</h2>
+          <p className="text-[#737373] text-[13px] mb-10">Start free. Top up credits when you need more.</p>
+          <div className="grid gap-4 sm:grid-cols-3 max-w-xl">
+            {[
+              { label: "$20", credits: "500 credits", note: "~1 BOQ" },
+              { label: "$50", credits: "1,250 credits", note: "~2–3 BOQs" },
+              { label: "$100", credits: "2,500 credits", note: "~5+ BOQs" },
+            ].map((tier) => (
+              <div key={tier.label} className="rounded-[8px] border border-[#262626] bg-[#111] p-5">
+                <p className="font-mono text-[24px] font-medium text-[#f5f5f5] mb-1">{tier.label}</p>
+                <p className="text-[12px] text-[#f59e0b] font-mono mb-1">{tier.credits}</p>
+                <p className="text-[12px] text-[#737373]">{tier.note}</p>
+              </div>
+            ))}
           </div>
+          <p className="text-[12px] text-[#404040] mt-4">Every new account gets 1,000 free credits — enough for ~2 BOQs.</p>
         </section>
 
-        {/* Waitlist */}
-        <section id="waitlist" className="mx-auto max-w-4xl px-4 py-8 sm:py-10">
-          <div className="text-center mb-10">
-            <p className="text-sm font-medium uppercase tracking-[0.22em] text-amber-300">Waitlist</p>
-            <h2 className="mt-3 text-3xl font-bold text-white">Get early access</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm text-gray-400">
-              Leave your details and we&apos;ll reach out when BOQ Generator is ready.
-            </p>
-          </div>
+        {/* Updates */}
+        <section id="updates" className="border-t border-[#1c1c1c] mx-auto max-w-[960px] px-6 py-12 pb-20">
+          <h2 className="font-serif text-[28px] font-normal text-[#f5f5f5] mb-2">Stay in the loop</h2>
+          <p className="text-[#737373] text-[13px] mb-8 max-w-md">New features, rate updates, and product news — straight to your inbox.</p>
           <WaitlistForm />
         </section>
       </main>
