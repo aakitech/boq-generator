@@ -7,7 +7,6 @@ import type { User } from "@supabase/supabase-js";
 import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
-import { getManualPaymentAdminConfig } from "@/lib/auth/manual-payment-admin";
 import { useCredits } from "@/components/CreditsProvider";
 
 interface BOQRow {
@@ -16,18 +15,15 @@ interface BOQRow {
   created_at: string;
   updated_at: string;
   payment_status: "preview" | "paid";
-  payment_source?: "stripe" | "manual_whatsapp" | null;
-  manual_payment_requested_at?: string | null;
   processing_status: "pending" | "processing" | "failed" | "completed";
   last_error?: string | null;
   source_excel_key?: string | null;
   data: { bills?: Array<{ items?: Array<{ amount?: number | null; qty?: number | null; rate?: number | null }> }> };
 }
 
-type DashboardFilter = "all" | "awaiting_payment" | "processing" | "needs_retry" | "completed";
+type DashboardFilter = "all" | "processing" | "needs_retry" | "completed";
 
 export default function DashboardPage() {
-  const adminConfig = getManualPaymentAdminConfig();
   const router = useRouter();
   const ph = usePostHog();
   const [user, setUser] = useState<User | null>(null);
@@ -38,10 +34,6 @@ export default function DashboardPage() {
   const [opening, setOpening] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>("all");
-
-  const isManualPaymentAdmin = Boolean(
-    user?.email && adminConfig.allowedEmails.includes(user.email.trim().toLowerCase())
-  );
 
   useEffect(() => {
     async function load() {
@@ -62,14 +54,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user) return;
-
     const interval = window.setInterval(async () => {
       const res = await fetch("/api/boqs", { cache: "no-store" });
       if (!res.ok) return;
       const { boqs } = await res.json();
       setBOQs(boqs || []);
     }, 15000);
-
     return () => window.clearInterval(interval);
   }, [user]);
 
@@ -78,24 +68,6 @@ export default function DashboardPage() {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
-  }
-
-  async function handleOpen(id: string) {
-    setOpening(id);
-    router.push(`/boq/${id}`);
-  }
-
-  async function handleResume(id: string) {
-    setOpening(id);
-    router.push(`/generating?boq_id=${id}`);
-  }
-
-  function isAwaitingManualApproval(boq: BOQRow) {
-    return (
-      boq.payment_status === "preview" &&
-      boq.payment_source === "manual_whatsapp" &&
-      Boolean(boq.manual_payment_requested_at)
-    );
   }
 
   async function handleDelete(id: string) {
@@ -115,32 +87,31 @@ export default function DashboardPage() {
     }, 0);
   }
 
+  function isProcessing(boq: BOQRow) {
+    return boq.processing_status === "pending" || boq.processing_status === "processing";
+  }
+
   function statusBadge(boq: BOQRow) {
-    if (isAwaitingManualApproval(boq)) {
-      return <span className="inline-flex rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">Awaiting payment</span>;
-    }
     if (boq.processing_status === "completed") {
-      return <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">Completed</span>;
+      return <span className="inline-flex rounded-[4px] border border-[#22c55e]/20 bg-[#22c55e]/8 px-2 py-0.5 text-[11px] font-medium text-[#22c55e]">✓ Completed</span>;
     }
     if (boq.processing_status === "failed") {
-      return <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-300">Needs retry</span>;
+      return <span className="inline-flex rounded-[4px] border border-[#ef4444]/20 bg-[#ef4444]/8 px-2 py-0.5 text-[11px] font-medium text-[#ef4444]">✗ Failed</span>;
     }
-    return <span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">Processing</span>;
+    return <span className="inline-flex rounded-[4px] border border-[#f59e0b]/20 bg-[#f59e0b]/10 px-2 py-0.5 text-[11px] font-medium text-[#f59e0b]">⧗ Generating</span>;
   }
 
   function matchesFilter(boq: BOQRow) {
     if (activeFilter === "all") return true;
-    if (activeFilter === "awaiting_payment") return isAwaitingManualApproval(boq);
-    if (activeFilter === "completed") return boq.processing_status === "completed" && !isAwaitingManualApproval(boq);
+    if (activeFilter === "completed") return boq.processing_status === "completed";
     if (activeFilter === "needs_retry") return boq.processing_status === "failed";
-    return boq.processing_status === "pending" || boq.processing_status === "processing";
+    return isProcessing(boq);
   }
 
   const filteredBoqs = useMemo(() => boqs.filter(matchesFilter), [activeFilter, boqs]);
 
   const filterOptions: Array<{ key: DashboardFilter; label: string }> = [
     { key: "all", label: "All" },
-    { key: "awaiting_payment", label: "Awaiting Payment" },
     { key: "processing", label: "Processing" },
     { key: "needs_retry", label: "Needs Retry" },
     { key: "completed", label: "Completed" },
@@ -149,70 +120,53 @@ export default function DashboardPage() {
   function filterCount(filter: DashboardFilter) {
     return boqs.filter((boq) => {
       if (filter === "all") return true;
-      if (filter === "awaiting_payment") return isAwaitingManualApproval(boq);
-      if (filter === "completed") return boq.processing_status === "completed" && !isAwaitingManualApproval(boq);
+      if (filter === "completed") return boq.processing_status === "completed";
       if (filter === "needs_retry") return boq.processing_status === "failed";
-      return boq.processing_status === "pending" || boq.processing_status === "processing";
+      return isProcessing(boq);
     }).length;
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-[#f59e0b] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
-      {/* Nav */}
-      <header className="border-b border-white/10 bg-[#0a0a0a]/95 backdrop-blur sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <header className="border-b border-[#262626] bg-[#0a0a0a]/92 backdrop-blur sticky top-0 z-20">
+        <div className="max-w-[960px] mx-auto px-6 flex items-center justify-between" style={{ height: 48 }}>
           <div className="flex items-center gap-4">
-            <a href="/">
-              <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+            <a href="/" className="flex items-center gap-2 text-[13px] font-medium text-[#f5f5f5]">
+              <div className="w-[7px] h-[7px] rounded-full bg-[#f59e0b]" />
+              BOQ Generator
             </a>
             {!loadingCredits ? <CreditBadge remainingCredits={remainingCredits} /> : null}
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 hidden sm:block">{user?.email}</span>
+          <div className="flex items-center gap-4">
+            <span className="text-[12px] text-[#404040] hidden sm:block">{user?.email}</span>
             <button
               onClick={handleSignOut}
               disabled={signingOut}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              className="text-[12px] text-[#737373] hover:text-[#f5f5f5] transition-colors"
             >
-              {signingOut ? "Signing out..." : "Sign out"}
+              {signingOut ? "Signing out…" : "Sign out"}
             </button>
           </div>
         </div>
       </header>
 
-      <main className="w-full flex-1 max-w-5xl mx-auto px-4 py-8 sm:py-10">
-        {/* Header row */}
-        <div className="flex items-center justify-between mb-8">
+      <main className="flex-1 max-w-[960px] mx-auto w-full px-6 py-10">
+        <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-white">Your BOQs</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              {filteredBoqs.length === 0 ? "No BOQs in this view" : `${filteredBoqs.length} BOQ${filteredBoqs.length !== 1 ? "s" : ""}`}
-            </p>
+            <h1 className="font-serif text-[24px] font-normal text-[#f5f5f5]">Your BOQs</h1>
+            <p className="text-[#737373] text-[12px] mt-1">{boqs.length} BOQ{boqs.length !== 1 ? "s" : ""}</p>
           </div>
-          <div className="flex items-center gap-3">
-            {isManualPaymentAdmin ? (
-              <a
-                href="/admin/manual-payments"
-                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors"
-              >
-                Manual Payments
-              </a>
-            ) : null}
-            <a
-              href="/upload"
-              className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors"
-            >
-              + New BOQ
-            </a>
-          </div>
+          <a href="/upload" className="rounded bg-[#f59e0b] hover:bg-[#fbbf24] px-4 py-2 text-[11px] font-semibold text-black transition-colors">
+            + New BOQ
+          </a>
         </div>
 
         <div className="mb-6 flex flex-wrap gap-2">
@@ -220,18 +174,14 @@ export default function DashboardPage() {
             <button
               key={filter.key}
               onClick={() => setActiveFilter(filter.key)}
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors ${
                 activeFilter === filter.key
-                  ? "bg-amber-400 text-black"
-                  : "bg-white/[0.04] text-gray-300 hover:bg-white/[0.08]"
+                  ? "bg-[#f59e0b] text-black"
+                  : "bg-[#111] border border-[#262626] text-[#737373] hover:text-[#f5f5f5]"
               }`}
             >
-              <span>{filter.label}</span>
-              <span
-                className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                  activeFilter === filter.key ? "bg-black/10 text-black" : "bg-white/10 text-gray-400"
-                }`}
-              >
+              {filter.label}
+              <span className={`rounded-[4px] px-1.5 py-0.5 text-[10px] font-mono ${activeFilter === filter.key ? "bg-black/15 text-black" : "bg-[#1a1a1a] text-[#404040]"}`}>
                 {filterCount(filter.key)}
               </span>
             </button>
@@ -239,87 +189,80 @@ export default function DashboardPage() {
         </div>
 
         {boqs.length === 0 ? (
-          <div className="text-center py-24 space-y-4">
-            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto">
-              <DocumentIcon className="w-8 h-8 text-gray-600" />
-            </div>
-            <a
-              href="/upload"
-              className="inline-block px-6 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-sm transition-colors"
-            >
-              New BOQ →
+          <div className="text-center py-24">
+            <p className="text-[#737373] text-[13px] mb-6">No BOQs yet.</p>
+            <a href="/upload" className="inline-block rounded bg-[#f59e0b] hover:bg-[#fbbf24] px-6 py-2.5 text-[13px] font-semibold text-black transition-colors">
+              Generate your first BOQ →
             </a>
           </div>
         ) : filteredBoqs.length === 0 ? (
-          <div className="text-center py-20 rounded-xl border border-white/10 bg-white/[0.02]">
-            <p className="text-sm text-gray-400">No BOQs match this filter right now.</p>
+          <div className="text-center py-16 rounded border border-[#262626]">
+            <p className="text-[13px] text-[#737373]">No BOQs match this filter.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-[5px]">
             {filteredBoqs.map((boq) => {
               const total = grandTotal(boq);
+              const processing = isProcessing(boq);
               return (
                 <div
                   key={boq.id}
-                  className="rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] transition-colors p-4 flex items-center gap-4"
+                  className={`rounded border p-[12px_14px] flex items-center justify-between gap-4 transition-colors ${
+                    processing
+                      ? "border-[rgba(245,158,11,0.25)] bg-[rgba(245,158,11,0.02)]"
+                      : "border-[#262626] bg-[#0a0a0a] hover:bg-[#111] cursor-pointer"
+                  }`}
                 >
-                  <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
-                    <DocumentIcon className="w-5 h-5 text-amber-400" />
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <p className="font-medium text-white truncate">{boq.title}</p>
-                      {statusBadge(boq)}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-[13px] font-medium text-[#f5f5f5] truncate">{boq.title}</p>
+                      {processing && <span className="text-[11px] text-[#f59e0b] font-normal">⧗ Generating...</span>}
+                      {!processing && statusBadge(boq)}
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {new Date(boq.created_at).toLocaleDateString("en-ZM", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
+                    <p className="text-[11px] text-[#404040] mt-0.5">
+                      {new Date(boq.created_at).toLocaleDateString("en-ZM", { day: "numeric", month: "short", year: "numeric" })}
                       {total > 0 && (
-                        <span className="ml-3 text-amber-400/80 font-mono">
+                        <span className="ml-3 font-mono tabular-nums text-[#737373]">
                           ZMW {total.toLocaleString("en-ZM", { minimumFractionDigits: 2 })}
                         </span>
                       )}
+                      {processing && <span className="ml-3 text-[#404040]">—</span>}
                     </p>
-                    {boq.processing_status === "failed" && boq.last_error ? (
-                      <p className="mt-1 text-xs text-gray-500 truncate">
-                        {boq.last_error}
-                      </p>
-                    ) : null}
+                    {boq.processing_status === "failed" && boq.last_error && (
+                      <p className="mt-0.5 text-[11px] text-[#737373] truncate">{boq.last_error}</p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    {isAwaitingManualApproval(boq) ? (
+                    {boq.processing_status === "completed" ? (
                       <button
-                        disabled
-                        className="px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 text-xs font-medium cursor-not-allowed"
-                      >
-                        Awaiting payment
-                      </button>
-                    ) : boq.processing_status === "completed" ? (
-                      <button
-                        onClick={() => handleOpen(boq.id)}
+                        onClick={() => { setOpening(boq.id); router.push(`/boq/${boq.id}`); }}
                         disabled={opening === boq.id}
-                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-medium transition-colors disabled:opacity-60"
+                        className="px-3 py-1.5 rounded border border-[#262626] hover:bg-[#1a1a1a] text-[#f5f5f5] text-[12px] font-medium transition-colors disabled:opacity-50"
                       >
-                        {opening === boq.id ? "Opening..." : "Open"}
+                        {opening === boq.id ? "Opening…" : "Open"}
+                      </button>
+                    ) : processing ? (
+                      <button
+                        onClick={() => { setOpening(boq.id); router.push(`/generating?boq_id=${boq.id}`); }}
+                        disabled={opening === boq.id}
+                        className="px-3 py-1.5 rounded bg-[#f59e0b] hover:bg-[#fbbf24] text-black text-[12px] font-semibold transition-colors disabled:opacity-50"
+                      >
+                        {opening === boq.id ? "…" : "View"}
                       </button>
                     ) : (
                       <button
-                        onClick={() => handleResume(boq.id)}
+                        onClick={() => { setOpening(boq.id); router.push(`/generating?boq_id=${boq.id}`); }}
                         disabled={opening === boq.id}
-                        className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-semibold transition-colors disabled:opacity-60"
+                        className="px-3 py-1.5 rounded border border-[#262626] hover:bg-[#1a1a1a] text-[#f5f5f5] text-[12px] font-medium transition-colors disabled:opacity-50"
                       >
-                        {opening === boq.id ? "Opening..." : "Resume"}
+                        Retry
                       </button>
                     )}
                     <button
                       onClick={() => handleDelete(boq.id)}
                       disabled={deleting === boq.id}
-                      className="px-3 py-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 text-xs font-medium transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 rounded text-[#404040] hover:text-[#ef4444] hover:bg-[rgba(239,68,68,0.06)] text-[12px] transition-colors disabled:opacity-50"
                     >
                       {deleting === boq.id ? "…" : "Delete"}
                     </button>

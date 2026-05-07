@@ -45,3 +45,4 @@ tools/spike/test-*.xlsx
 tools/spike/review-artifacts/
 
 .vercel
+.gstack/

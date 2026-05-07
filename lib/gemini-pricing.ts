@@ -1,8 +1,9 @@
 export const STARTER_WALLET_CREDITS = 1000;
-export const STARTER_WALLET_USD = 1;
-export const USD_PER_CREDIT = STARTER_WALLET_USD / STARTER_WALLET_CREDITS;
-export const GENERATE_BOQ_TARGET_USD = 0.5;
-export const ASSISTANT_EDIT_TARGET_USD = 0.05;
+export const STARTER_WALLET_USD = 40;
+export const USD_PER_CREDIT = 0.04;
+export const GENERATE_BOQ_TARGET_USD = 20.0;
+export const ASSISTANT_EDIT_TARGET_USD = 0;
+export const MAX_GENERATION_CREDITS = 2500; // $100 cap
 
 type AIPrice = {
   inputPerMillionUsd: number;
@@ -97,11 +98,11 @@ export function creditsFromUsdTarget(targetUsd: number): number {
 }
 
 export function creditsForGeneratedBoq(): number {
-  return creditsFromUsdTarget(GENERATE_BOQ_TARGET_USD);
+  return 500; // $20 floor
 }
 
 export function creditsForAssistantEdit(): number {
-  return creditsFromUsdTarget(ASSISTANT_EDIT_TARGET_USD);
+  return 0; // free
 }
 
 export function summarizeAIUsage(entries: AIUsageEntry[]): AIUsageSummary {

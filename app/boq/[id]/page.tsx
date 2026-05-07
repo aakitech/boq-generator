@@ -403,9 +403,9 @@ export default function BOQPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0b0c0f] animate-pulse">
+      <div className="min-h-screen bg-[#0a0a0a] animate-pulse">
         {/* Header skeleton */}
-        <div className="sticky top-0 z-20 border-b border-white/10 bg-[#0b0c0f]/95 px-4 py-3">
+        <div className="sticky top-0 z-20 border-b border-white/10 bg-[#0a0a0a]/95 px-4 py-3">
           <div className="max-w-[1500px] mx-auto flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="h-7 w-28 rounded bg-white/10" />
@@ -449,12 +449,12 @@ export default function BOQPage() {
   }, 0);
 
   return (
-    <div className="min-h-screen bg-[#0b0c0f]">
-      <header className="sticky top-0 z-20 border-b border-white/15 bg-[#0b0c0f]/95 backdrop-blur">
+    <div className="min-h-screen bg-[#0a0a0a]">
+      <header className="sticky top-0 z-20 border-b border-white/15 bg-[#0a0a0a]/95 backdrop-blur">
         <div className="max-w-[1500px] mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <a href="/" className="shrink-0">
-              <img src="/boqlogo.png" alt="BOQ Generator" className="h-7 w-auto" width="28" height="28" />
+            <a href="/" className="shrink-0 font-serif text-white text-base tracking-tight">
+              BOQ Generator
             </a>
             <a
               href="/dashboard"
@@ -472,7 +472,7 @@ export default function BOQPage() {
           <div className="flex items-center gap-4 min-w-0">
             <div className="min-w-0">
               <p className="text-xs text-gray-300 truncate">{boq.location}</p>
-              <h1 className="text-sm font-semibold text-white truncate">{boq.project}</h1>
+              <h1 className="font-serif text-base text-white truncate">{boq.project}</h1>
             </div>
           </div>
 
