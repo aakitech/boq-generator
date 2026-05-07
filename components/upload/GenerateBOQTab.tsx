@@ -38,8 +38,17 @@ export default function GenerateBOQTab() {
     form.append("file", file);
     const res = await fetch("/api/extract", { method: "POST", body: form });
     if (!res.ok) {
-      const { error: e } = await res.json();
-      throw new Error(e || "Extraction failed");
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const { error: e } = await res.json();
+        throw new Error(e || "Extraction failed");
+      }
+      // Non-JSON error (e.g. 413 from proxy) — surface a clean message
+      const text = await res.text();
+      if (res.status === 413 || text.toLowerCase().includes("too large") || text.toLowerCase().includes("entity")) {
+        throw new Error("File too large. Maximum file size is 50 MB.");
+      }
+      throw new Error("Extraction failed. Please try again.");
     }
     return res.json();
   }
