@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import mammoth from "mammoth";
 import { extractDrawingWithVision, formatDrawingTextForPrompt } from "@/lib/drawing-extractor";
 import { getServerEnv } from "@/lib/server-env";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParse = require("pdf-parse") as (
@@ -12,8 +13,7 @@ const pdfParse = require("pdf-parse") as (
 ) => Promise<{ text: string; numpages: number }>;
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
-export const maxRequestBodySize = "55mb";
+export const maxDuration = 600;
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB for all documents
 const MIN_DIRECT_TEXT_LENGTH = 120;
@@ -188,15 +188,63 @@ function createPageRender() {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+  // storage_key path: browser uploaded directly to Supabase, we download server-side
+  // file body path: local dev / legacy — multipart form with file bytes
+  const contentType = req.headers.get("content-type") ?? "";
+  const isStorageKeyRequest = contentType.includes("application/json");
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  let buffer: Buffer;
+  let filename: string;
+  let storageKeyToDelete: string | null = null;
+
+  try {
+    if (isStorageKeyRequest) {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const { storage_key } = (await req.json()) as { storage_key?: string };
+      if (!storage_key || typeof storage_key !== "string") {
+        return NextResponse.json({ error: "storage_key is required" }, { status: 400 });
+      }
+
+      const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "boq-generator-dev";
+      const serviceClient = createServiceClient();
+      const { data: fileData, error: downloadError } = await serviceClient.storage
+        .from(STORAGE_BUCKET)
+        .download(storage_key);
+
+      if (downloadError || !fileData) {
+        logger.error("extract: storage download failed", { storage_key, error: String(downloadError) });
+        return NextResponse.json({ error: "Could not retrieve the uploaded file. Please try again." }, { status: 500 });
+      }
+
+      buffer = Buffer.from(await fileData.arrayBuffer());
+      filename = storage_key.split("/").pop() ?? storage_key;
+      storageKeyToDelete = storage_key;
+    } else {
+      // Legacy multipart path — used in local dev
+      const formData = await req.formData();
+      const file = formData.get("file") as File | null;
+
+      if (!file) {
+        return NextResponse.json({ error: "No file provided" }, { status: 400 });
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json(
+          { error: "File too large. Maximum file size is 50 MB." },
+          { status: 400 }
+        );
+      }
+
+      buffer = Buffer.from(await file.arrayBuffer());
+      filename = file.name;
     }
 
-    const name = file.name.toLowerCase();
+    const name = filename.toLowerCase();
     const isPDF = name.endsWith(".pdf");
     const isDOCX = name.endsWith(".docx");
 
@@ -206,16 +254,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: "File too large. Maximum file size is 50 MB." },
-        { status: 400 }
-      );
-    }
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
 
     let text = "";
     let pages: number | null = null;
@@ -239,24 +277,24 @@ export async function POST(req: NextRequest) {
       if (looksLikeDrawing) {
         // Use Files API + Gemini Vision for drawings — handles large files, reads detail
         try {
-          const drawingResult = await extractDrawingWithVision(buffer, file.name);
+          const drawingResult = await extractDrawingWithVision(buffer, filename);
           if (drawingResult.text.length > trimmedText.length) {
-            text = formatDrawingTextForPrompt(drawingResult.text, file.name);
+            text = formatDrawingTextForPrompt(drawingResult.text, filename);
             drawingType = drawingResult.drawing_type;
             subjectName = drawingResult.subject_name;
             usedDrawingExtractor = true;
           }
         } catch (drawingError) {
           logger.error("Drawing vision extraction failed", {
-            filename: file.name,
-            fileSizeMb: (file.size / 1024 / 1024).toFixed(1),
+            filename,
+            fileSizeMb: (buffer.length / 1024 / 1024).toFixed(1),
             error: drawingError instanceof Error ? drawingError.message : String(drawingError),
             stack: drawingError instanceof Error ? drawingError.stack : undefined,
           });
           // Fallback to old inline vision for smaller files
-          if (file.size <= 8 * 1024 * 1024) {
+          if (buffer.length <= 8 * 1024 * 1024) {
             try {
-              const visionText = await extractPdfTextWithVision(buffer, file.name);
+              const visionText = await extractPdfTextWithVision(buffer, filename);
               if (visionText.trim().length > trimmedText.length) {
                 text = enrichDrawingText(visionText);
               }
@@ -301,5 +339,15 @@ export async function POST(req: NextRequest) {
     });
     const classified = classifyExtractionError(err);
     return NextResponse.json({ error: classified.message }, { status: classified.status });
+  } finally {
+    // Clean up temp storage file regardless of success or failure
+    if (storageKeyToDelete) {
+      const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "boq-generator-dev";
+      const serviceClient = createServiceClient();
+      await serviceClient.storage
+        .from(STORAGE_BUCKET)
+        .remove([storageKeyToDelete])
+        .catch((e) => logger.warn("extract: failed to delete temp file", { key: storageKeyToDelete, error: String(e) }));
+    }
   }
 }
