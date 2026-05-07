@@ -4,6 +4,7 @@ import { fillMissingRatesInExistingBOQ } from "@/lib/ai";
 import type { RateContext, GeminiUsageCollector } from "@/lib/ai";
 import { extractWorkbookBOQ } from "@/lib/excel";
 import { summarizeAIUsage, MAX_GENERATION_CREDITS } from "@/lib/gemini-pricing";
+import { consumeWalletCredits } from "@/lib/credits";
 import { trackEvent } from "@/lib/analytics";
 import { logger } from "@/lib/logger";
 import { sendBoqReadyEmail } from "@/lib/email/boq-ready";
@@ -65,6 +66,8 @@ export const rateBOQJob = inngest.createFunction(
       const title = result.boq.project || "Rated BOQ";
       const itemCount = result.boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
 
+      const ratingCredits = Math.max(500, Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS));
+
       const { error } = await db
         .from("boqs")
         .update({
@@ -76,7 +79,7 @@ export const rateBOQJob = inngest.createFunction(
           ai_output_tokens: usage.outputTokens,
           ai_total_tokens: usage.totalTokens,
           ai_cost_usd: usage.costUsd,
-          ai_credits_charged: Math.max(500, Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS)),
+          ai_credits_charged: ratingCredits,
           ai_usage_breakdown: usage.entries,
         })
         .eq("id", boq_id);
@@ -85,6 +88,15 @@ export const rateBOQJob = inngest.createFunction(
         logger.error("rate-boq job: failed to save result", { boq_id, error: String(error) });
         throw new Error("Failed to save rated BOQ");
       }
+
+      await consumeWalletCredits(db, {
+        userId: user_id,
+        reason: "rate_boq",
+        referenceType: "boq",
+        referenceId: boq_id,
+        credits: ratingCredits,
+        deltaUsd: usage.costUsd,
+      });
 
       trackEvent(user_id, "boq_rated_async", {
         boqId: boq_id,
