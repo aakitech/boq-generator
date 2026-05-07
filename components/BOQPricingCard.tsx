@@ -66,8 +66,8 @@ export default function BOQPricingCard({
               <p className="text-xs text-gray-400 mt-0.5">{approxRangeLabel}</p>
             )}
           </div>
-          <p className="text-2xl font-bold text-amber-400">
-            {hasFreeCredits ? `${safeCreditsRemaining.toLocaleString()} cr` : tier.displayUsd}
+          <p className={hasFreeCredits ? "text-sm font-semibold text-amber-300" : "text-2xl font-bold text-amber-400"}>
+            {hasFreeCredits ? `${safeCreditsRemaining.toLocaleString()} credits` : tier.displayUsd}
           </p>
         </div>
       </div>
