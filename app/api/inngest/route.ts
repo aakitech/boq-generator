@@ -4,7 +4,7 @@ import { generateBOQJob } from "@/inngest/generate-boq";
 import { rateBOQJob } from "@/inngest/rate-boq";
 
 export const runtime = "nodejs";
-export const maxDuration = 900;
+export const maxDuration = 300;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
