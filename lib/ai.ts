@@ -1203,7 +1203,6 @@ async function generateStructure(
     responseSchema: STRUCTURE_SCHEMA,
     systemInstruction,
     temperature: recoveryMode ? 0.3 : 0.2,
-    useFastModel: true,
     usageCollector,
     usageOperation: recoveryMode ? "generate_structure_recovery" : "generate_structure",
   });
@@ -1234,7 +1233,6 @@ async function extractQuantities(
     responseSchema: QUANTITY_SCHEMA,
     systemInstruction: QUANTITY_PROMPT,
     temperature: 0.1,
-    useFastModel: true,
     usageCollector,
     usageOperation: "extract_quantities",
   });
@@ -2351,7 +2349,6 @@ async function fillRatesPass(
     }>({
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
-      useFastModel: true,
       usageCollector: options?.usageCollector,
       usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}

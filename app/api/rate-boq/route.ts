@@ -5,8 +5,7 @@ import type { RateContext } from "@/lib/ai";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { getRemainingCredits } from "@/lib/credits";
-import { InngestEnqueueError, sendInngestEvent } from "@/lib/inngest";
-import { processRateBOQJob, shouldRunJobsInline } from "@/lib/boq-jobs";
+import { inngest } from "@/lib/inngest";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -90,8 +89,9 @@ export async function POST(req: NextRequest) {
       .eq("id", boq_id)
       .eq("user_id", user.id);
 
-    if (shouldRunJobsInline) {
-      void processRateBOQJob({
+    await inngest.send({
+      name: "boq/rate.requested",
+      data: {
         boq_id,
         user_id: user.id,
         user_email: user.email ?? "",
@@ -99,53 +99,8 @@ export async function POST(req: NextRequest) {
         rate_col_header: boq.rate_col_header ?? "",
         amount_col_header: boq.amount_col_header ?? "",
         rate_context: effectiveRateContext,
-      }).catch((jobError) => {
-        logger.error("rate-boq inline job error", {
-          error: jobError instanceof Error ? jobError.message : String(jobError),
-          route: "rate-boq",
-          boqId: boq_id,
-        });
-      });
-
-      trackEvent(user.id, "boq_rate_enqueued", { boqId: boq_id, mode: "inline-dev" });
-
-      return NextResponse.json({ boq_id, processing_status: "pending" });
-    }
-
-    try {
-      await sendInngestEvent({
-        name: "boq/rate.requested",
-        data: {
-          boq_id,
-          user_id: user.id,
-          user_email: user.email ?? "",
-          storage_key: boq.source_excel_key,
-          rate_col_header: boq.rate_col_header ?? "",
-          amount_col_header: boq.amount_col_header ?? "",
-          rate_context: effectiveRateContext,
-        },
-      });
-    } catch (sendError) {
-      const message = sendError instanceof Error ? sendError.message : String(sendError);
-      await serviceClient
-        .from("boqs")
-        .update({
-          processing_status: "failed",
-          processing_failed_at: new Date().toISOString(),
-          last_error: `Could not enqueue rating job: ${message}`,
-        })
-        .eq("id", boq_id)
-        .eq("user_id", user.id);
-      logger.error("rate-boq enqueue send failed", {
-        error: message,
-        route: "rate-boq",
-        boqId: boq_id,
-      });
-      if (sendError instanceof InngestEnqueueError) {
-        return NextResponse.json({ error: message }, { status: 503 });
-      }
-      throw sendError;
-    }
+      },
+    });
 
     trackEvent(user.id, "boq_rate_enqueued", { boqId: boq_id });
 
