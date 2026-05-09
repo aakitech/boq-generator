@@ -4,9 +4,10 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
-import { inngest } from "@/lib/inngest";
+import { InngestEnqueueError, sendInngestEvent } from "@/lib/inngest";
 import type { RateContext } from "@/lib/ai";
 import { getRemainingCredits } from "@/lib/credits";
+import { processGenerateBOQJob, shouldRunJobsInline } from "@/lib/boq-jobs";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -98,16 +99,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to start generation. Please try again." }, { status: 500 });
     }
 
-    await inngest.send({
-      name: "boq/generate.requested",
-      data: {
+    if (shouldRunJobsInline) {
+      void processGenerateBOQJob({
         boq_id: saved.id,
         documents: truncatedDocuments,
         rate_context,
         user_id: user.id,
         user_email: user.email ?? "",
-      },
-    });
+      }).catch((jobError) => {
+        logger.error("BOQ generate inline job error", {
+          error: jobError instanceof Error ? jobError.message : String(jobError),
+          route: "generate",
+          boqId: saved.id,
+        });
+      });
+
+      trackEvent(user.id, "boq_generate_enqueued", {
+        boqId: saved.id,
+        docCount: truncatedDocuments.length,
+        mode: "inline-dev",
+      });
+
+      return NextResponse.json({ boq_id: saved.id, processing_status: "pending" });
+    }
+
+    try {
+      await sendInngestEvent({
+        name: "boq/generate.requested",
+        data: {
+          boq_id: saved.id,
+          documents: truncatedDocuments,
+          rate_context,
+          user_id: user.id,
+          user_email: user.email ?? "",
+        },
+      });
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message : String(sendError);
+      await dbClient
+        .from("boqs")
+        .update({
+          processing_status: "failed",
+          processing_failed_at: new Date().toISOString(),
+          last_error: `Could not enqueue generation job: ${message}`,
+        })
+        .eq("id", saved.id);
+      logger.error("BOQ generate enqueue send failed", {
+        error: message,
+        route: "generate",
+        boqId: saved.id,
+      });
+      if (sendError instanceof InngestEnqueueError) {
+        return NextResponse.json({ error: message }, { status: 503 });
+      }
+      throw sendError;
+    }
 
     trackEvent(user.id, "boq_generate_enqueued", {
       boqId: saved.id,
