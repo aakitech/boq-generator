@@ -13,6 +13,20 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const maxRequestBodySize = "55mb";
 
+function titleFromDocumentName(name: string): string {
+  return name
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferPendingTitle(documents: GenerationInputDocument[]): string {
+  const primary = documents.find((doc) => doc.role === "primary") ?? documents[0];
+  const title = primary?.subject_name?.trim() || (primary?.name ? titleFromDocumentName(primary.name) : "");
+  return title ? title.slice(0, 120) : "Generating BOQ";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -55,6 +69,7 @@ export async function POST(req: NextRequest) {
       ...doc,
       text: doc.text.length > 80000 ? doc.text.slice(0, 80000) + "\n...[truncated]" : doc.text,
     }));
+    const pendingTitle = inferPendingTitle(allDocuments);
 
     const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
     const dbClient = hasServiceRole ? createServiceClient() : supabase;
@@ -83,7 +98,7 @@ export async function POST(req: NextRequest) {
       .from("boqs")
       .insert({
         user_id: user.id,
-        title: "Generating…",
+        title: pendingTitle,
         data: {},
         payment_status: "paid",
         processing_status: "pending",
