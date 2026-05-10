@@ -11,6 +11,19 @@ import { sendBoqReadyEmail } from "@/lib/email/boq-ready";
 
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "boq-generator-dev";
 
+async function markRatingFailed(boqId: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const db = createServiceClient();
+  await db
+    .from("boqs")
+    .update({
+      processing_status: "failed",
+      processing_failed_at: new Date().toISOString(),
+      last_error: message,
+    })
+    .eq("id", boqId);
+}
+
 export const rateBOQJob = inngest.createFunction(
   { id: "rate-boq", retries: 2, timeouts: { finish: "10m" }, triggers: [{ event: "boq/rate.requested" }] },
   async ({ event, step }) => {
@@ -25,106 +38,116 @@ export const rateBOQJob = inngest.createFunction(
         rate_context?: RateContext;
       };
 
-    await step.run("mark-processing", async () => {
-      const db = createServiceClient();
-      await db
-        .from("boqs")
-        .update({
-          processing_status: "processing",
-          processing_started_at: new Date().toISOString(),
-          last_error: null,
-        })
-        .eq("id", boq_id);
-    });
-
-    const result = await step.run("fill-rates", async () => {
-      const db = createServiceClient();
-
-      const { data: fileData, error: downloadError } = await db.storage
-        .from(STORAGE_BUCKET)
-        .download(storage_key);
-
-      if (downloadError || !fileData) {
-        const isGone = String(downloadError).includes("Object not found") || String(downloadError).includes("404");
-        throw new Error(
-          isGone
-            ? `Source Excel file no longer exists in storage (key: ${storage_key}). Re-upload the file from the UI to retry.`
-            : `Storage download failed: ${String(downloadError)}`
-        );
-      }
-
-      const buffer = Buffer.from(await fileData.arrayBuffer());
-      const workbookBoq = await extractWorkbookBOQ(buffer, {
-        rateColumnHeader: rate_col_header || null,
-        amountColumnHeader: amount_col_header || null,
+    try {
+      await step.run("mark-processing", async () => {
+        const db = createServiceClient();
+        await db
+          .from("boqs")
+          .update({
+            processing_status: "processing",
+            processing_started_at: new Date().toISOString(),
+            last_error: null,
+          })
+          .eq("id", boq_id);
       });
 
-      const usageCollector: GeminiUsageCollector = { entries: [] };
-      const boq = await fillMissingRatesInExistingBOQ(workbookBoq, rate_context, usageCollector);
+      const result = await step.run("fill-rates", async () => {
+        const db = createServiceClient();
 
-      return { boq, usage: usageCollector.entries };
-    });
+        const { data: fileData, error: downloadError } = await db.storage
+          .from(STORAGE_BUCKET)
+          .download(storage_key);
 
-    await step.run("save-result", async () => {
-      const db = createServiceClient();
-      const usage = summarizeAIUsage(result.usage);
-      const title = result.boq.project || "Rated BOQ";
-      const itemCount = result.boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
+        if (downloadError || !fileData) {
+          const isGone = String(downloadError).includes("Object not found") || String(downloadError).includes("404");
+          throw new Error(
+            isGone
+              ? `Source Excel file no longer exists in storage (key: ${storage_key}). Re-upload the file from the UI to retry.`
+              : `Storage download failed: ${String(downloadError)}`
+          );
+        }
 
-      const ratingCredits = Math.max(500, Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS));
-
-      const { error } = await db
-        .from("boqs")
-        .update({
-          title,
-          data: result.boq,
-          processing_status: "completed",
-          last_error: null,
-          ai_input_tokens: usage.inputTokens,
-          ai_output_tokens: usage.outputTokens,
-          ai_total_tokens: usage.totalTokens,
-          ai_cost_usd: usage.costUsd,
-          ai_credits_charged: ratingCredits,
-          ai_usage_breakdown: usage.entries,
-        })
-        .eq("id", boq_id);
-
-      if (error) {
-        logger.error("rate-boq job: failed to save result", { boq_id, error: String(error) });
-        throw new Error("Failed to save rated BOQ");
-      }
-
-      await consumeWalletCredits(db, {
-        userId: user_id,
-        reason: "rate_boq",
-        referenceType: "boq",
-        referenceId: boq_id,
-        credits: ratingCredits,
-        deltaUsd: usage.costUsd,
-      });
-
-      trackEvent(user_id, "boq_rated_async", {
-        boqId: boq_id,
-        itemCount,
-        storageKey: storage_key,
-        aiCostUsd: usage.costUsd,
-        creditsCharged: usage.creditsCharged,
-      });
-    });
-
-    await step.run("send-email", async () => {
-      if (!user_email) return;
-      const title = result.boq.project || "Rated BOQ";
-      try {
-        await sendBoqReadyEmail({ email: user_email, boqId: boq_id, title });
-      } catch (err) {
-        logger.warn("rate-boq job: completion email failed", {
-          boq_id,
-          error: err instanceof Error ? err.message : String(err),
+        const buffer = Buffer.from(await fileData.arrayBuffer());
+        const workbookBoq = await extractWorkbookBOQ(buffer, {
+          rateColumnHeader: rate_col_header || null,
+          amountColumnHeader: amount_col_header || null,
         });
-      }
-    });
 
-    return { boq_id };
+        const usageCollector: GeminiUsageCollector = { entries: [] };
+        const boq = await fillMissingRatesInExistingBOQ(workbookBoq, rate_context, usageCollector);
+
+        return { boq, usage: usageCollector.entries };
+      });
+
+      await step.run("save-result", async () => {
+        const db = createServiceClient();
+        const usage = summarizeAIUsage(result.usage);
+        const title = result.boq.project || "Rated BOQ";
+        const itemCount = result.boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
+
+        const ratingCredits = Math.max(500, Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS));
+
+        const { error } = await db
+          .from("boqs")
+          .update({
+            title,
+            data: result.boq,
+            processing_status: "completed",
+            processing_failed_at: null,
+            last_error: null,
+            ai_input_tokens: usage.inputTokens,
+            ai_output_tokens: usage.outputTokens,
+            ai_total_tokens: usage.totalTokens,
+            ai_cost_usd: usage.costUsd,
+            ai_credits_charged: ratingCredits,
+            ai_usage_breakdown: usage.entries,
+          })
+          .eq("id", boq_id);
+
+        if (error) {
+          logger.error("rate-boq job: failed to save result", { boq_id, error: String(error) });
+          throw new Error("Failed to save rated BOQ");
+        }
+
+        await consumeWalletCredits(db, {
+          userId: user_id,
+          reason: "rate_boq",
+          referenceType: "boq",
+          referenceId: boq_id,
+          credits: ratingCredits,
+          deltaUsd: usage.costUsd,
+        });
+
+        trackEvent(user_id, "boq_rated_async", {
+          boqId: boq_id,
+          itemCount,
+          storageKey: storage_key,
+          aiCostUsd: usage.costUsd,
+          creditsCharged: usage.creditsCharged,
+        });
+      });
+
+      await step.run("send-email", async () => {
+        if (!user_email) return;
+        const title = result.boq.project || "Rated BOQ";
+        try {
+          await sendBoqReadyEmail({ email: user_email, boqId: boq_id, title });
+        } catch (err) {
+          logger.warn("rate-boq job: completion email failed", {
+            boq_id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+
+      return { boq_id };
+    } catch (err) {
+      logger.error("rate-boq job failed", {
+        boq_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await markRatingFailed(boq_id, err);
+      throw err;
+    }
   }
 );

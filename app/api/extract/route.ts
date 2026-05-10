@@ -25,9 +25,35 @@ const GEMINI_VISION_MODELS = [
   "gemini-2.5-flash",
 ].filter(Boolean) as string[];
 
+function isGeminiSpendCapError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("monthly spending cap") ||
+    lower.includes("project spend cap") ||
+    lower.includes("exceeded its monthly spending cap")
+  );
+}
+
 function classifyExtractionError(error: unknown): { status: number; message: string } {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
+
+  if (isGeminiSpendCapError(error)) {
+    return {
+      status: 503,
+      message:
+        "AI drawing extraction is temporarily unavailable because the Gemini project has exceeded its monthly spending cap. Increase the cap in Google AI Studio or switch to a funded API key, then try again.",
+    };
+  }
+
+  if (lower.includes("429") || lower.includes("quota") || lower.includes("too many requests")) {
+    return {
+      status: 503,
+      message:
+        "AI drawing extraction is temporarily unavailable because the AI provider quota was reached. Please try again later or use a funded API key.",
+    };
+  }
 
   if (
     lower.includes("failed to parse body as formdata") ||
@@ -291,6 +317,9 @@ export async function POST(req: NextRequest) {
             error: drawingError instanceof Error ? drawingError.message : String(drawingError),
             stack: drawingError instanceof Error ? drawingError.stack : undefined,
           });
+          if (isGeminiSpendCapError(drawingError)) {
+            throw drawingError;
+          }
           // Fallback to old inline vision for smaller files
           if (buffer.length <= 8 * 1024 * 1024) {
             try {
@@ -302,6 +331,9 @@ export async function POST(req: NextRequest) {
               logger.warn("Inline vision fallback also failed", {
                 error: visionError instanceof Error ? visionError.message : String(visionError),
               });
+              if (isGeminiSpendCapError(visionError)) {
+                throw visionError;
+              }
             }
           }
         }
