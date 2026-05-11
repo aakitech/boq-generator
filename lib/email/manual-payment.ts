@@ -31,7 +31,7 @@ export async function sendManualPaymentApprovedEmail(options: {
 
   const from =
     process.env.RESEND_FROM_EMAIL ??
-    "BOQ Generator <updates@boqgenerator.com>";
+    "BOQ Generator <boq-support@aakitech.com>";
   const continueUrl = buildDashboardLink();
   const subject = "Your BOQ payment was confirmed";
   const text = `Your payment has been confirmed for "${options.title}".

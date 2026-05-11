@@ -22,7 +22,7 @@ export async function sendBoqReadyEmail(options: {
     return;
   }
 
-  const from = process.env.RESEND_FROM_EMAIL ?? "BOQ Generator <updates@boqgenerator.com>";
+  const from = process.env.RESEND_FROM_EMAIL ?? "BOQ Generator <boq-support@aakitech.com>";
   const boqUrl = `${getAppUrl()}/boq/${options.boqId}`;
 
   const response = await fetch("https://api.resend.com/emails", {

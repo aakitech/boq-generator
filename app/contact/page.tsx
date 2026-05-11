@@ -4,8 +4,7 @@ export const metadata = {
   title: "Contact & Support — BOQ Generator",
 };
 
-// TODO: Replace SUPPORT_EMAIL with your actual support email address before going live.
-const SUPPORT_EMAIL = "support@boqgenerator.com";
+const SUPPORT_EMAIL = "boq-support@aakitech.com";
 
 export default function ContactPage() {
   return (
@@ -51,15 +50,15 @@ export default function ContactPage() {
           {[
             {
               q: "My BOQ didn't generate — what do I do?",
-              a: "Email us with your Stripe payment reference (found in your Stripe receipt email). We will investigate and either re-run your generation or issue a refund in line with our Refund Policy.",
+              a: "Email us at boq-support@aakitech.com with your payment reference and a description of what happened. We will investigate and either re-run your generation or issue a refund in line with our Refund Policy.",
             },
             {
               q: "I paid but the page didn't redirect back correctly.",
-              a: "Your payment was likely successful. Log in to your account and check 'My BOQs' — your BOQ may already be there. If not, email us with your payment reference and we will sort it out.",
+              a: "Your payment was likely successful. Log in to your account and check 'My BOQs' — your BOQ may already be there. If not, email us at boq-support@aakitech.com with your payment reference and we will sort it out.",
             },
             {
               q: "Can I request a refund?",
-              a: "Yes, in certain cases. Please read our Refund Policy on the Terms of Service page, then contact us with your Stripe payment reference.",
+              a: "Yes, in certain cases. Please read our Refund Policy on the Terms of Service page, then contact us at boq-support@aakitech.com with your payment reference.",
             },
             {
               q: "The BOQ quality is poor — what should I do?",

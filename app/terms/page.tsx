@@ -34,24 +34,24 @@ export default function TermsPage() {
           <p>You must be at least 18 years of age and have the legal capacity to enter into contracts to use this Service. By using the Service, you represent that you meet these requirements.</p>
         </Section>
 
-        <Section title="3. Payment">
+        <Section title="3. Payment & Credits">
           <ul className="list-disc pl-5 space-y-1 text-sm">
-            <li>The Service charges a one-time fee per BOQ, ranging from <strong className="text-white">USD $20 to $500</strong> based on the estimated value of the generated Bill of Quantities.</li>
-            <li>Payment is processed securely by Stripe. By completing payment, you authorise this charge.</li>
-            <li>Prices are shown in USD and are exclusive of any local taxes that may apply in your jurisdiction.</li>
-            <li>Your payment is non-refundable once BOQ generation has been initiated (see Refund Policy below).</li>
+            <li>The Service operates on a credit wallet. New accounts receive starter credits on sign-up. Additional credits can be purchased via MoMo, Airtel Money, or bank transfer.</li>
+            <li>Credits are deducted when AI work is completed (BOQ generation, rate-filling, or AI assistant proposals).</li>
+            <li>Credit top-ups are processed manually. Once payment is confirmed by our team, credits are added to your wallet within 1 business day.</li>
+            <li>Credit balances are non-transferable and non-refundable except in cases of service failure (see Refund Policy below).</li>
           </ul>
         </Section>
 
         <Section title="4. Refund Policy">
           <p>We want you to be satisfied with the Service. Our refund policy is as follows:</p>
           <ul className="list-disc pl-5 space-y-1 text-sm mt-2">
-            <li><strong className="text-white">Technical failure:</strong> If the Service fails to generate a BOQ due to a technical error on our side and you are unable to download any output, you are entitled to a full refund. Contact us within 7 days of your payment with your Stripe payment reference.</li>
-            <li><strong className="text-white">Poor-quality output:</strong> If the generated BOQ is clearly unusable due to a failure in our AI system (e.g., entirely blank, garbled output), contact us and we will review your case. We may offer a re-generation or refund at our discretion.</li>
-            <li><strong className="text-white">Unsuitable document:</strong> If you uploaded a document that is not a Scope of Work and received a poor-quality BOQ as a result, refunds are not guaranteed. We provide a document validation warning before payment to help prevent this.</li>
-            <li><strong className="text-white">Change of mind:</strong> Refunds are not available after BOQ generation has been initiated, as the AI processing cost has been incurred.</li>
+            <li><strong className="text-white">Technical failure:</strong> If the Service fails to generate a BOQ due to a technical error on our side and you are unable to download any output, you are entitled to a credit refund or re-generation. Contact us within 7 days.</li>
+            <li><strong className="text-white">Poor-quality output:</strong> If the generated BOQ is clearly unusable due to a failure in our AI system (e.g., entirely blank, garbled output), contact us and we will review your case. We may offer a re-generation or credit refund at our discretion.</li>
+            <li><strong className="text-white">Unsuitable document:</strong> If you uploaded a document that is not a Scope of Work and received a poor-quality BOQ as a result, refunds are not guaranteed. We provide a document validation step before processing to help prevent this.</li>
+            <li><strong className="text-white">Change of mind:</strong> Credits are not refunded after BOQ generation has been initiated, as the AI processing cost has been incurred.</li>
           </ul>
-          <p className="mt-3 text-sm">To request a refund, contact us via the <a href="/contact" className="text-amber-400 hover:underline">Contact page</a> with your Stripe payment reference and a brief description of the issue.</p>
+          <p className="mt-3 text-sm">To request a refund, contact us via the <a href="/contact" className="text-amber-400 hover:underline">Contact page</a> with a brief description of the issue.</p>
         </Section>
 
         <Section title="5. Acceptable use">

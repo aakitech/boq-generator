@@ -113,8 +113,8 @@ export default function AffiliateDashboard({ affiliate, stats, referralUrl }: Pr
         </div>
         <p className="text-xs text-gray-500 pt-1 border-t border-white/5">
           Payouts are processed manually. Contact us at{" "}
-          <a href="mailto:hello@boqgenerator.com" className="text-amber-400 hover:underline">
-            hello@boqgenerator.com
+          <a href="mailto:boq-support@aakitech.com" className="text-amber-400 hover:underline">
+            boq-support@aakitech.com
           </a>{" "}
           to request a payout once your balance exceeds $20.
         </p>
