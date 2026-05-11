@@ -8,8 +8,6 @@ const REQUIRED_SERVER_VARS = [
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "GEMINI_API_KEY",
-  "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET",
   "NEXT_PUBLIC_APP_URL",
   "SUPABASE_STORAGE_BUCKET",
 ] as const;
@@ -27,8 +25,6 @@ export const config = {
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
   geminiApiKey: process.env.GEMINI_API_KEY!,
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
   appUrl: process.env.NEXT_PUBLIC_APP_URL!,
   storageBucket: process.env.SUPABASE_STORAGE_BUCKET!,
   isProduction: process.env.NODE_ENV === "production",

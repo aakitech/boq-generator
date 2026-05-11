@@ -29,7 +29,7 @@ export async function sendWaitlistConfirmation({
 
   const from =
     process.env.RESEND_FROM_EMAIL ??
-    "BOQ Generator <updates@boqgenerator.com>";
+    "BOQ Generator <boq-support@aakitech.com>";
   const greeting = role
     ? `Thanks for joining the BOQ Generator waitlist as a ${role}.`
     : "Thanks for joining the BOQ Generator waitlist.";

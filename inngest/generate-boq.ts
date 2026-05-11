@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { inngest } from "@/lib/inngest";
 import { createServiceClient } from "@/lib/supabase/server";
 import { generateBOQ, validateSOW } from "@/lib/ai";
@@ -35,126 +36,134 @@ export const generateBOQJob = inngest.createFunction(
 
     try {
       await step.run("mark-processing", async () => {
-        const db = createServiceClient();
-        await db
-          .from("boqs")
-          .update({
-            processing_status: "processing",
-            processing_started_at: new Date().toISOString(),
-            last_error: null,
-          })
-          .eq("id", boq_id);
+        return Sentry.startSpan({ name: "inngest.generate-boq/mark-processing", op: "inngest.step" }, async () => {
+          const db = createServiceClient();
+          await db
+            .from("boqs")
+            .update({
+              processing_status: "processing",
+              processing_started_at: new Date().toISOString(),
+              last_error: null,
+            })
+            .eq("id", boq_id);
+        });
       });
 
       const result = await step.run("generate", async () => {
-        const usageCollector: GeminiUsageCollector = { entries: [] };
-        const validationText = documents
-          .map((d) => d.text.slice(0, 3000))
-          .join("\n\n---\n\n");
+        return Sentry.startSpan({ name: "inngest.generate-boq/generate", op: "inngest.step" }, async () => {
+          const usageCollector: GeminiUsageCollector = { entries: [] };
+          const validationText = documents
+            .map((d) => d.text.slice(0, 3000))
+            .join("\n\n---\n\n");
 
-        const validation = await validateSOW(validationText, {
-          supportingDocsCount: documents.length - 1,
-          usageCollector,
-        });
-
-        if (validation.should_block_generation) {
-          throw new Error(validation.reason || "These documents can't be used to generate a BOQ.");
-        }
-
-        const truncated = documents.map((d) => ({
-          ...d,
-          text: d.text.length > 80000 ? d.text.slice(0, 80000) + "\n...[truncated]" : d.text,
-        }));
-
-        const boq = await generateBOQ(
-          { documents: truncated },
-          {
-            suggestRates: true,
-            rateContext: rate_context,
-            documentClassification: validation,
+          const validation = await validateSOW(validationText, {
+            supportingDocsCount: documents.length - 1,
             usageCollector,
-          }
-        );
+          });
 
-        return { boq, usage: usageCollector.entries };
+          if (validation.should_block_generation) {
+            throw new Error(validation.reason || "These documents can't be used to generate a BOQ.");
+          }
+
+          const truncated = documents.map((d) => ({
+            ...d,
+            text: d.text.length > 80000 ? d.text.slice(0, 80000) + "\n...[truncated]" : d.text,
+          }));
+
+          const boq = await generateBOQ(
+            { documents: truncated },
+            {
+              suggestRates: true,
+              rateContext: rate_context,
+              documentClassification: validation,
+              usageCollector,
+            }
+          );
+
+          return { boq, usage: usageCollector.entries };
+        });
       });
 
       const savedId = await step.run("save-result", async () => {
-        const db = createServiceClient();
-        const usage = summarizeAIUsage(result.usage);
-        const title = result.boq.project || "Untitled BOQ";
-        const generationCredits = Math.max(
-          creditsForGeneratedBoq(),
-          Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS)
-        );
+        return Sentry.startSpan({ name: "inngest.generate-boq/save-result", op: "inngest.step" }, async () => {
+          const db = createServiceClient();
+          const usage = summarizeAIUsage(result.usage);
+          const title = result.boq.project || "Untitled BOQ";
+          const generationCredits = Math.max(
+            creditsForGeneratedBoq(),
+            Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS)
+          );
 
-        const grandTotalZmw = (result.boq.bills ?? []).reduce((sum, bill) => {
-          return sum + (bill.items ?? []).filter((i) => !i.is_header).reduce((s, i) => {
-            const amt = i.amount ?? (i.qty != null && i.rate != null ? i.qty * i.rate : null);
-            return s + (amt ?? 0);
+          const grandTotalZmw = (result.boq.bills ?? []).reduce((sum, bill) => {
+            return sum + (bill.items ?? []).filter((i) => !i.is_header).reduce((s, i) => {
+              const amt = i.amount ?? (i.qty != null && i.rate != null ? i.qty * i.rate : null);
+              return s + (amt ?? 0);
+            }, 0);
           }, 0);
-        }, 0);
-        const itemCount = (result.boq.bills ?? [])
-          .flatMap((b) => b.items ?? [])
-          .filter((i) => !i.is_header).length;
+          const itemCount = (result.boq.bills ?? [])
+            .flatMap((b) => b.items ?? [])
+            .filter((i) => !i.is_header).length;
 
-        const { data: saved, error } = await db
-          .from("boqs")
-          .update({
+          const { data: saved, error } = await db
+            .from("boqs")
+            .update({
+              title,
+              data: result.boq,
+              processing_status: "completed",
+              processing_failed_at: null,
+              last_error: null,
+              grand_total_zmw: grandTotalZmw,
+              ai_input_tokens: usage.inputTokens,
+              ai_output_tokens: usage.outputTokens,
+              ai_total_tokens: usage.totalTokens,
+              ai_cost_usd: usage.costUsd,
+              ai_credits_charged: generationCredits,
+              ai_usage_breakdown: usage.entries,
+            })
+            .eq("id", boq_id)
+            .select("id")
+            .single();
+
+          if (error || !saved) {
+            logger.error("generate-boq job: failed to save result", { boq_id, error: String(error) });
+            throw new Error("Failed to save generated BOQ");
+          }
+
+          await consumeWalletCredits(db, {
+            userId: user_id,
+            reason: "generate_boq",
+            referenceType: "boq",
+            referenceId: boq_id,
+            credits: generationCredits,
+            deltaUsd: usage.costUsd,
+          });
+
+          trackEvent(user_id, "boq_generated_async", {
+            boqId: saved.id,
             title,
-            data: result.boq,
-            processing_status: "completed",
-            processing_failed_at: null,
-            last_error: null,
-            grand_total_zmw: grandTotalZmw,
-            ai_input_tokens: usage.inputTokens,
-            ai_output_tokens: usage.outputTokens,
-            ai_total_tokens: usage.totalTokens,
-            ai_cost_usd: usage.costUsd,
-            ai_credits_charged: generationCredits,
-            ai_usage_breakdown: usage.entries,
-          })
-          .eq("id", boq_id)
-          .select("id")
-          .single();
+            itemCount,
+            grandTotalZmw,
+            aiCostUsd: usage.costUsd,
+            creditsCharged: generationCredits,
+          });
 
-        if (error || !saved) {
-          logger.error("generate-boq job: failed to save result", { boq_id, error: String(error) });
-          throw new Error("Failed to save generated BOQ");
-        }
-
-        await consumeWalletCredits(db, {
-          userId: user_id,
-          reason: "generate_boq",
-          referenceType: "boq",
-          referenceId: boq_id,
-          credits: generationCredits,
-          deltaUsd: usage.costUsd,
+          return saved.id;
         });
-
-        trackEvent(user_id, "boq_generated_async", {
-          boqId: saved.id,
-          title,
-          itemCount,
-          grandTotalZmw,
-          aiCostUsd: usage.costUsd,
-          creditsCharged: generationCredits,
-        });
-
-        return saved.id;
       });
 
       await step.run("send-email", async () => {
-        if (!user_email) return;
-        const title = result.boq.project || "Untitled BOQ";
-        try {
-          await sendBoqReadyEmail({ email: user_email, boqId: savedId, title });
-        } catch (err) {
-          logger.warn("generate-boq job: completion email failed", {
-            boq_id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        return Sentry.startSpan({ name: "inngest.generate-boq/send-email", op: "inngest.step" }, async () => {
+          if (!user_email) return;
+          const title = result.boq.project || "Untitled BOQ";
+          try {
+            await sendBoqReadyEmail({ email: user_email, boqId: savedId, title });
+          } catch (err) {
+            logger.warn("generate-boq job: completion email failed", {
+              boq_id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
       });
 
       return { boq_id: savedId };
