@@ -34,21 +34,38 @@ export default function GenerateBOQTab() {
 
   async function extractDoc(file: File): Promise<{ text: string; pages: number | null; drawing_type?: string | null; subject_name?: string | null }> {
     if (file.size > 50 * 1024 * 1024) throw new Error("File too large. Maximum file size is 50 MB.");
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch("/api/extract", { method: "POST", body: form });
+
+    // Step 1: get a signed upload URL — tiny request, no file bytes through Vercel
+    const uploadUrlRes = await fetch("/api/upload-doc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name }),
+    });
+    if (!uploadUrlRes.ok) {
+      const { error: e } = await uploadUrlRes.json().catch(() => ({ error: null }));
+      throw new Error(e || "Failed to prepare upload. Please try again.");
+    }
+    const { signedUrl, storageKey } = await uploadUrlRes.json();
+
+    // Step 2: upload file bytes directly to Supabase Storage — bypasses Vercel body limit
+    const uploadRes = await fetch(signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!uploadRes.ok) {
+      throw new Error("Upload failed. Please try again.");
+    }
+
+    // Step 3: tell the extract route to process from storage
+    const res = await fetch("/api/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storage_key: storageKey }),
+    });
     if (!res.ok) {
-      const contentType = res.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        const { error: e } = await res.json();
-        throw new Error(e || "Extraction failed");
-      }
-      // Non-JSON error (e.g. 413 from proxy) — surface a clean message
-      const text = await res.text();
-      if (res.status === 413 || text.toLowerCase().includes("too large") || text.toLowerCase().includes("entity")) {
-        throw new Error("File too large. Maximum file size is 50 MB.");
-      }
-      throw new Error("Extraction failed. Please try again.");
+      const { error: e } = await res.json().catch(() => ({ error: null }));
+      throw new Error(e || "Extraction failed. Please try again.");
     }
     return res.json();
   }

@@ -561,30 +561,50 @@ async function generateStructuredContent<T>({
     }
   }
 
-  // Gemini is the emergency fallback — one attempt only
-  try {
-    const generationConfig: Record<string, unknown> = {
-      responseMimeType: "application/json",
-      responseSchema: responseSchema as any,
-      temperature,
-    };
-    const model = getGenAI().getGenerativeModel({
-      model: geminiModel,
-      systemInstruction,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      generationConfig: generationConfig as any,
-    });
-    const result = await Sentry.startSpan(
-      { name: `ai.gemini/${geminiModel}`, op: "ai.call", attributes: { model: geminiModel } },
-      () => model.generateContent(prompt)
-    );
-    recordGeminiUsage(usageCollector, geminiModel, usageOperation ?? "structured_content", result.response.usageMetadata);
-    return parseJsonResponse<T>(result.response.text());
-  } catch (geminiError) {
-    const openAIMsg = lastOpenAIError instanceof Error ? lastOpenAIError.message : String(lastOpenAIError);
-    const geminiMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
-    throw new Error(`OpenAI failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMsg}. Gemini fallback failed: ${geminiMsg}`);
+  // Gemini fallback — try each model up to MAX_ATTEMPTS_PER_MODEL times with backoff before moving on
+  const geminiModels = Array.from(new Set([geminiModel, GEMINI_FAST_FALLBACK_MODEL]));
+  const geminiErrors: string[] = [];
+  for (const gModel of geminiModels) {
+    let lastModelError: unknown;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+      try {
+        const generationConfig: Record<string, unknown> = {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema as any,
+          temperature,
+        };
+        const model = getGenAI().getGenerativeModel({
+          model: gModel,
+          systemInstruction,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          generationConfig: generationConfig as any,
+        });
+        const result = await Sentry.startSpan(
+          { name: `ai.gemini/${gModel}`, op: "ai.call", attributes: { model: gModel } },
+          () => model.generateContent(prompt)
+        );
+        recordGeminiUsage(usageCollector, gModel, usageOperation ?? "structured_content", result.response.usageMetadata);
+        return parseJsonResponse<T>(result.response.text());
+      } catch (geminiError) {
+        lastModelError = geminiError;
+        const msg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+        const isTransient =
+          msg.includes("503") ||
+          msg.includes("overloaded") ||
+          msg.includes("high demand") ||
+          msg.includes("unavailable");
+        if (isTransient && attempt < MAX_ATTEMPTS_PER_MODEL) {
+          await new Promise((r) => setTimeout(r, HIGH_DEMAND_RETRY_BASE_MS * attempt));
+          continue;
+        }
+        if (!isTransient) break;
+      }
+    }
+    const modelMsg = lastModelError instanceof Error ? lastModelError.message : String(lastModelError);
+    geminiErrors.push(`${gModel}: ${modelMsg}`);
   }
+  const openAIMsg = lastOpenAIError instanceof Error ? lastOpenAIError.message : String(lastOpenAIError);
+  throw new Error(`OpenAI failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMsg}. Gemini fallback failed — ${geminiErrors.join(" | ")}`);
 }
 
 function detectRequiredAttachments(text: string): RequiredAttachment[] {
@@ -1190,6 +1210,7 @@ async function generateStructure(
     responseSchema: STRUCTURE_SCHEMA,
     systemInstruction,
     temperature: recoveryMode ? 0.3 : 0.2,
+    useFastModel: true,
     usageCollector,
     usageOperation: recoveryMode ? "generate_structure_recovery" : "generate_structure",
   });
@@ -1220,6 +1241,7 @@ async function extractQuantities(
     responseSchema: QUANTITY_SCHEMA,
     systemInstruction: QUANTITY_PROMPT,
     temperature: 0.1,
+    useFastModel: true,
     usageCollector,
     usageOperation: "extract_quantities",
   });
@@ -2336,6 +2358,7 @@ async function fillRatesPass(
     }>({
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
+      useFastModel: true,
       usageCollector: options?.usageCollector,
       usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}

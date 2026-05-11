@@ -2,7 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getServerEnv } from "./server-env";
 import type { DrawingType } from "./types";
 
-const DRAWING_VISION_MODEL = "gemini-2.5-pro";
+const DRAWING_VISION_MODELS = [
+  process.env.GEMINI_DRAWING_MODEL_PRIMARY ?? process.env.GEMINI_MODEL_PRIMARY ?? "gemini-2.5-pro",
+  process.env.GEMINI_MODEL_FALLBACK ?? "gemini-2.5-flash",
+];
 
 const VALID_DRAWING_TYPES: DrawingType[] = [
   "site_plan", "floor_plan", "elevation", "section",
@@ -161,22 +164,42 @@ export async function extractDrawingWithVision(
 
   const fileUri = await uploadToFilesAPI(buffer, filename, "application/pdf");
 
+  const models = Array.from(new Set(DRAWING_VISION_MODELS));
+  let lastError: unknown;
+
   try {
-    const model = client.getGenerativeModel({
-      model: DRAWING_VISION_MODEL,
-      generationConfig: { temperature: 0 },
-    });
+    for (const modelName of models) {
+      try {
+        const model = client.getGenerativeModel({
+          model: modelName,
+          generationConfig: { temperature: 0 },
+        });
 
-    const result = await model.generateContent([
-      { text: DRAWING_EXTRACTION_PROMPT },
-      { fileData: { mimeType: "application/pdf", fileUri } },
-    ]);
+        const result = await model.generateContent([
+          { text: DRAWING_EXTRACTION_PROMPT },
+          { fileData: { mimeType: "application/pdf", fileUri } },
+        ]);
 
-    const raw = result.response.text().trim();
-    const tokenCount = result.response.usageMetadata?.totalTokenCount ?? 0;
-    const { drawing_type, subject_name, text } = parseClassificationHeader(raw);
+        const raw = result.response.text().trim();
+        const tokenCount = result.response.usageMetadata?.totalTokenCount ?? 0;
+        const { drawing_type, subject_name, text } = parseClassificationHeader(raw);
 
-    return { text, fileUri, tokenCount, drawing_type, subject_name };
+        return { text, fileUri, tokenCount, drawing_type, subject_name };
+      } catch (err) {
+        lastError = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes("503") ||
+          msg.includes("overloaded") ||
+          msg.includes("high demand") ||
+          msg.includes("unavailable")
+        ) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
   } finally {
     deleteFromFilesAPI(fileUri);
   }
