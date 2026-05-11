@@ -8,6 +8,8 @@ import Footer from "@/components/Footer";
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
 import { useCredits } from "@/components/CreditsProvider";
+import WelcomeModal from "@/components/WelcomeModal";
+import TopUpModal from "@/components/TopUpModal";
 
 interface BOQRow {
   id: string;
@@ -34,6 +36,8 @@ export default function DashboardPage() {
   const [opening, setOpening] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>("all");
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showTopUp, setShowTopUp] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -42,6 +46,25 @@ export default function DashboardPage() {
       if (!user) { router.replace("/login"); return; }
       setUser(user);
       ph.identify(user.id, { email: user.email });
+
+      // Show welcome modal once for new users (credits granted in last 5 min)
+      const dismissedKey = `welcome_shown_${user.id}`;
+      if (!localStorage.getItem(dismissedKey)) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("wallet_credits_granted_at")
+          .eq("id", user.id)
+          .single();
+        if (profile?.wallet_credits_granted_at) {
+          const grantedAt = new Date(profile.wallet_credits_granted_at).getTime();
+          const isNew = Date.now() - grantedAt < 5 * 60 * 1000;
+          if (isNew) {
+            localStorage.setItem(dismissedKey, "1");
+            setShowWelcome(true);
+          }
+        }
+      }
+
       const res = await fetch("/api/boqs");
       if (res.ok) {
         const { boqs } = await res.json();
@@ -276,6 +299,16 @@ export default function DashboardPage() {
         )}
       </main>
       <Footer />
+
+      {showWelcome && (
+        <WelcomeModal
+          onClose={() => setShowWelcome(false)}
+          onTopUp={() => setShowTopUp(true)}
+        />
+      )}
+      {showTopUp && (
+        <TopUpModal onClose={() => setShowTopUp(false)} />
+      )}
     </div>
   );
 }

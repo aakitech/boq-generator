@@ -24,7 +24,8 @@ export default function GenerateBOQTab() {
 
   const anyProcessing = uploadedDocs.some((d) => d.processing);
   const readyDocs = uploadedDocs.filter((d) => d.processedDoc);
-  const canGenerate = readyDocs.length > 0 && !anyProcessing && stage !== "generating";
+  const hasEnoughCredits = remainingCredits >= 500;
+  const canGenerate = readyDocs.length > 0 && !anyProcessing && stage !== "generating" && hasEnoughCredits;
 
   const bundleDocs = useMemo((): ProcessedDoc[] => {
     return uploadedDocs
@@ -169,17 +170,24 @@ export default function GenerateBOQTab() {
 
       {uploadedDocs.length > 0 && <RateAssumptions ctx={ctx} onChange={setCtx} />}
 
-      {remainingCredits > 0 && uploadedDocs.length > 0 && (
+      {uploadedDocs.length > 0 && (
         <div className="flex items-center justify-between px-4 py-3 rounded border border-[#f59e0b]/20 bg-[#f59e0b]/5">
           <CreditBadge remainingCredits={remainingCredits} />
+        </div>
+      )}
+
+      {uploadedDocs.length > 0 && !hasEnoughCredits && (
+        <div className="px-4 py-3 rounded border border-[#f59e0b]/20 bg-[#f59e0b]/5 text-xs text-[#f59e0b]">
+          You need at least 500 credits to generate a BOQ.{" "}
+          <button className="underline" onClick={() => setShowTopUp(true)}>Top up credits</button>
         </div>
       )}
 
       {uploadedDocs.length > 0 && (
         <button
           className="w-full py-3.5 rounded bg-[#f59e0b] hover:bg-[#fbbf24] text-black font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-          onClick={handleGenerate}
-          disabled={!canGenerate}
+          onClick={!hasEnoughCredits ? () => setShowTopUp(true) : handleGenerate}
+          disabled={!anyProcessing && stage !== "generating" && readyDocs.length === 0}
         >
           {anyProcessing ? (
             <>
@@ -191,6 +199,8 @@ export default function GenerateBOQTab() {
               <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-black/60 border-t-transparent animate-spin" />
               Starting…
             </>
+          ) : !hasEnoughCredits ? (
+            "Top up to generate →"
           ) : (
             "Generate BOQ →"
           )}
