@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { GoogleGenerativeAI, SchemaType, type UsageMetadata } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { computeAICostUsd, type AIProvider, type AIUsageEntry } from "@/lib/gemini-pricing";
@@ -464,29 +465,32 @@ async function generateStructuredContentWithOpenAI<T>({
 }): Promise<T> {
   const apiKey = ensureOpenAIConfigured();
   const model = preferredModel || OPENAI_PRIMARY_MODEL;
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature,
-      messages: [
-        ...(systemInstruction ? [{ role: "system", content: systemInstruction }] : []),
-        { role: "user", content: prompt },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: OPENAI_STRUCTURED_OUTPUT_NAME,
-          strict: true,
-          schema: toOpenAIJsonSchema(responseSchema as GeminiSchemaNode),
-        },
+  const response = await Sentry.startSpan(
+    { name: `ai.openai/${model}`, op: "ai.call", attributes: { model } },
+    () => fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      body: JSON.stringify({
+        model,
+        temperature,
+        messages: [
+          ...(systemInstruction ? [{ role: "system", content: systemInstruction }] : []),
+          { role: "user", content: prompt },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: OPENAI_STRUCTURED_OUTPUT_NAME,
+            strict: true,
+            schema: toOpenAIJsonSchema(responseSchema as GeminiSchemaNode),
+          },
+        },
+      }),
+    })
+  );
 
   if (!response.ok) {
     throw new Error(await parseOpenAIError(response));
@@ -570,7 +574,10 @@ async function generateStructuredContent<T>({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       generationConfig: generationConfig as any,
     });
-    const result = await model.generateContent(prompt);
+    const result = await Sentry.startSpan(
+      { name: `ai.gemini/${geminiModel}`, op: "ai.call", attributes: { model: geminiModel } },
+      () => model.generateContent(prompt)
+    );
     recordGeminiUsage(usageCollector, geminiModel, usageOperation ?? "structured_content", result.response.usageMetadata);
     return parseJsonResponse<T>(result.response.text());
   } catch (geminiError) {

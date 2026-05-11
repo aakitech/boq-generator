@@ -1,3 +1,5 @@
+import * as Sentry from "@sentry/nextjs";
+
 type LogLevel = "info" | "warn" | "error" | "debug";
 
 type LogContext = Record<string, unknown>;
@@ -25,3 +27,11 @@ export const logger = {
   error: (message: string, context?: LogContext) => log("error", message, context),
   debug: (message: string, context?: LogContext) => log("debug", message, context),
 };
+
+/**
+ * Wraps fn in a Sentry performance span and logs duration on completion.
+ * Use this on heavy API route handlers to get request timing in Sentry traces.
+ */
+export async function withTiming<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  return Sentry.startSpan({ name, op: "http.handler" }, fn);
+}

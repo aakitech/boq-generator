@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { inngest } from "@/lib/inngest";
 import { createServiceClient } from "@/lib/supabase/server";
 import { fillMissingRatesInExistingBOQ } from "@/lib/ai";
@@ -26,98 +27,106 @@ export const rateBOQJob = inngest.createFunction(
       };
 
     await step.run("mark-processing", async () => {
-      const db = createServiceClient();
-      await db
-        .from("boqs")
-        .update({
-          processing_status: "processing",
-          processing_started_at: new Date().toISOString(),
-          last_error: null,
-        })
-        .eq("id", boq_id);
+      return Sentry.startSpan({ name: "inngest.rate-boq/mark-processing", op: "inngest.step" }, async () => {
+        const db = createServiceClient();
+        await db
+          .from("boqs")
+          .update({
+            processing_status: "processing",
+            processing_started_at: new Date().toISOString(),
+            last_error: null,
+          })
+          .eq("id", boq_id);
+      });
     });
 
     const result = await step.run("fill-rates", async () => {
-      const db = createServiceClient();
+      return Sentry.startSpan({ name: "inngest.rate-boq/fill-rates", op: "inngest.step" }, async () => {
+        const db = createServiceClient();
 
-      const { data: fileData, error: downloadError } = await db.storage
-        .from(STORAGE_BUCKET)
-        .download(storage_key);
+        const { data: fileData, error: downloadError } = await db.storage
+          .from(STORAGE_BUCKET)
+          .download(storage_key);
 
-      if (downloadError || !fileData) {
-        throw new Error(`Storage download failed: ${String(downloadError)}`);
-      }
+        if (downloadError || !fileData) {
+          throw new Error(`Storage download failed: ${String(downloadError)}`);
+        }
 
-      const buffer = Buffer.from(await fileData.arrayBuffer());
-      const workbookBoq = await extractWorkbookBOQ(buffer, {
-        rateColumnHeader: rate_col_header || null,
-        amountColumnHeader: amount_col_header || null,
+        const buffer = Buffer.from(await fileData.arrayBuffer());
+        const workbookBoq = await extractWorkbookBOQ(buffer, {
+          rateColumnHeader: rate_col_header || null,
+          amountColumnHeader: amount_col_header || null,
+        });
+
+        const usageCollector: GeminiUsageCollector = { entries: [] };
+        const boq = await fillMissingRatesInExistingBOQ(workbookBoq, rate_context, usageCollector);
+
+        return { boq, usage: usageCollector.entries };
       });
-
-      const usageCollector: GeminiUsageCollector = { entries: [] };
-      const boq = await fillMissingRatesInExistingBOQ(workbookBoq, rate_context, usageCollector);
-
-      return { boq, usage: usageCollector.entries };
     });
 
     await step.run("save-result", async () => {
-      const db = createServiceClient();
-      const usage = summarizeAIUsage(result.usage);
-      const title = result.boq.project || "Rated BOQ";
-      const itemCount = result.boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
+      return Sentry.startSpan({ name: "inngest.rate-boq/save-result", op: "inngest.step" }, async () => {
+        const db = createServiceClient();
+        const usage = summarizeAIUsage(result.usage);
+        const title = result.boq.project || "Rated BOQ";
+        const itemCount = result.boq.bills?.flatMap((b) => b.items).filter((i) => !i.is_header).length ?? 0;
 
-      const ratingCredits = Math.max(500, Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS));
+        const ratingCredits = Math.max(500, Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS));
 
-      const { error } = await db
-        .from("boqs")
-        .update({
-          title,
-          data: result.boq,
-          processing_status: "completed",
-          last_error: null,
-          ai_input_tokens: usage.inputTokens,
-          ai_output_tokens: usage.outputTokens,
-          ai_total_tokens: usage.totalTokens,
-          ai_cost_usd: usage.costUsd,
-          ai_credits_charged: ratingCredits,
-          ai_usage_breakdown: usage.entries,
-        })
-        .eq("id", boq_id);
+        const { error } = await db
+          .from("boqs")
+          .update({
+            title,
+            data: result.boq,
+            processing_status: "completed",
+            last_error: null,
+            ai_input_tokens: usage.inputTokens,
+            ai_output_tokens: usage.outputTokens,
+            ai_total_tokens: usage.totalTokens,
+            ai_cost_usd: usage.costUsd,
+            ai_credits_charged: ratingCredits,
+            ai_usage_breakdown: usage.entries,
+          })
+          .eq("id", boq_id);
 
-      if (error) {
-        logger.error("rate-boq job: failed to save result", { boq_id, error: String(error) });
-        throw new Error("Failed to save rated BOQ");
-      }
+        if (error) {
+          logger.error("rate-boq job: failed to save result", { boq_id, error: String(error) });
+          throw new Error("Failed to save rated BOQ");
+        }
 
-      await consumeWalletCredits(db, {
-        userId: user_id,
-        reason: "rate_boq",
-        referenceType: "boq",
-        referenceId: boq_id,
-        credits: ratingCredits,
-        deltaUsd: usage.costUsd,
-      });
+        await consumeWalletCredits(db, {
+          userId: user_id,
+          reason: "rate_boq",
+          referenceType: "boq",
+          referenceId: boq_id,
+          credits: ratingCredits,
+          deltaUsd: usage.costUsd,
+        });
 
-      trackEvent(user_id, "boq_rated_async", {
-        boqId: boq_id,
-        itemCount,
-        storageKey: storage_key,
-        aiCostUsd: usage.costUsd,
-        creditsCharged: usage.creditsCharged,
+        trackEvent(user_id, "boq_rated_async", {
+          boqId: boq_id,
+          itemCount,
+          storageKey: storage_key,
+          aiCostUsd: usage.costUsd,
+          creditsCharged: usage.creditsCharged,
+        });
       });
     });
 
     await step.run("send-email", async () => {
-      if (!user_email) return;
-      const title = result.boq.project || "Rated BOQ";
-      try {
-        await sendBoqReadyEmail({ email: user_email, boqId: boq_id, title });
-      } catch (err) {
-        logger.warn("rate-boq job: completion email failed", {
-          boq_id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      return Sentry.startSpan({ name: "inngest.rate-boq/send-email", op: "inngest.step" }, async () => {
+        if (!user_email) return;
+        const title = result.boq.project || "Rated BOQ";
+        try {
+          await sendBoqReadyEmail({ email: user_email, boqId: boq_id, title });
+        } catch (err) {
+          logger.warn("rate-boq job: completion email failed", {
+            boq_id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
     });
 
     return { boq_id };
