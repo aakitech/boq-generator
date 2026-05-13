@@ -17,21 +17,31 @@ const PRICED_FILES = [
     file: "PRICED BOQ _ DRIP AND FILTER STATION BUILDING AND ASSOCIATED WORKS _ PHASE 4.xlsx",
     project: "Drip and Filter Station Phase 4",
     province: "Copperbelt",
+    project_type: "commercial",
   },
   {
     file: "PRICED BOQ _  NAKAMBALA PRIVATE SCHOOL.xlsx",
     project: "Nakambala Private School",
     province: "Copperbelt",
+    project_type: "commercial",
   },
   {
     file: "PRICED BOQ _ PIPELINE 2 PLINTH AND PEDASTAL PIPE SUPPORT FROM SHIMUNGALU TO P 2.xlsx",
     project: "Pipeline 2 Plinth and Pedestal Pipe Support",
     province: "Copperbelt",
+    project_type: "commercial",
   },
   {
     file: "PRICED BOQ _ People vehicle separation Ph 4 of 6 _ Between Marshaling and Total Filling Station _ Lot 1 (1).xlsx",
     project: "People Vehicle Separation Ph 4 of 6",
     province: "Copperbelt",
+    project_type: "commercial",
+  },
+  {
+    file: "PRICED ZS P9-D10 WS CMEWorks TenderDoc BOQ Rev B 20260308.xlsx",
+    project: "P9-D10 Water Supply CME Works",
+    province: "Southern",
+    project_type: "government",
   },
 ];
 
@@ -54,7 +64,7 @@ function detectHeaderRow(rows) {
     const row = rows[i];
     const normalized = (row ?? []).map((v) => normalize(v));
     const hasDesc = normalized.some((v) => v === "description");
-    const hasRate = normalized.some((v) => v === "rate" || v === "unit rate");
+    const hasRate = normalized.some((v) => v === "rate" || v === "unit rate" || v.startsWith("rate "));
     const hasUnit = normalized.some((v) => v === "unit");
     if (hasDesc && hasRate && hasUnit) {
       return {
@@ -62,7 +72,7 @@ function detectHeaderRow(rows) {
         descCol: normalized.findIndex((v) => v === "description"),
         unitCol: normalized.findIndex((v) => v === "unit"),
         qtyCol: normalized.findIndex((v) => v === "qty" || v === "quantity"),
-        rateCol: normalized.findIndex((v) => v === "rate" || v === "unit rate"),
+        rateCol: normalized.findIndex((v) => v === "rate" || v === "unit rate" || v.startsWith("rate ")),
         amountCol: normalized.findIndex((v) => v === "amount"),
       };
     }
@@ -96,7 +106,10 @@ function extractFromSheet(ws, sheetName, meta) {
     if (!row || row.every((v) => v === null)) continue;
 
     const description = String(row[cols.descCol] ?? "").trim();
-    const unit = String(row[cols.unitCol] ?? "").trim();
+    const rawUnit = row[cols.unitCol];
+    const unit = (rawUnit && typeof rawUnit === "object" && rawUnit.richText)
+      ? rawUnit.richText.map((r) => r.text).join("").trim()
+      : String(rawUnit ?? "").trim();
     const qty = row[cols.qtyCol];
     const rate = row[cols.rateCol];
 
@@ -121,6 +134,7 @@ function extractFromSheet(ws, sheetName, meta) {
       bill: currentBill,
       project: meta.project,
       province: meta.province,
+      project_type: meta.project_type,
       source_file: meta.file,
     });
   }
