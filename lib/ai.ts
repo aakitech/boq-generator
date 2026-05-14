@@ -46,7 +46,7 @@ export type GeminiUsageCollector = {
   entries: AIUsageEntry[];
 };
 
-type StructurePassResponse = {
+export type StructurePassResponse = {
   project: string;
   location: string;
   prepared_by: string;
@@ -67,7 +67,7 @@ type StructurePassResponse = {
   }>;
 };
 
-type QuantityPassResponse = {
+export type QuantityPassResponse = {
   items: Array<{
     item_key: string;
     qty: number | null;
@@ -685,7 +685,7 @@ function normalizeSourceDocumentType(
   return role === "primary" ? "construction_sow" : "supporting_context";
 }
 
-function buildSourceBundle(documents: GenerationInputDocument[]): SourceBundleDocument[] {
+export function buildSourceBundle(documents: GenerationInputDocument[]): SourceBundleDocument[] {
   return documents.map((doc) => ({
     document_id: doc.document_id,
     name: doc.name,
@@ -728,7 +728,7 @@ function drawingInstruction(drawingType: string | null | undefined): string {
   }
 }
 
-function buildPromptBundle(documents: GenerationInputDocument[]): string {
+export function buildPromptBundle(documents: GenerationInputDocument[]): string {
   const drawings = documents.filter(
     (d) => d.role === "supporting" && (
       d.document_type === "drawing_set" ||
@@ -1155,7 +1155,7 @@ Final bill — EXTERNAL WORKS AND SERVICES (site-wide items not belonging to a s
   );
 }
 
-async function classifyProjectStructure(
+export async function classifyProjectStructure(
   documents: GenerationInputDocument[],
   usageCollector?: GeminiUsageCollector
 ): Promise<{ structure_type: StructureMode; blocks: string[] }> {
@@ -1203,7 +1203,7 @@ Return blocks as an array of block names in the order they appear in the SOW. Us
   }
 }
 
-async function generateStructure(
+export async function generateStructure(
   bundleText: string,
   recoveryMode: boolean,
   structureMode: StructureMode = "trade_based",
@@ -1227,7 +1227,7 @@ async function generateStructure(
   });
 }
 
-async function extractQuantities(
+export async function extractQuantities(
   bundleText: string,
   structure: BOQStructureArtifact,
   usageCollector?: GeminiUsageCollector
@@ -1321,7 +1321,7 @@ function parseJsonResponse<T>(raw: string): T {
   throw lastError instanceof Error ? lastError : new Error("Could not parse model JSON response.");
 }
 
-function normalizeStructure(raw: StructurePassResponse): BOQStructureArtifact {
+export function normalizeStructure(raw: StructurePassResponse): BOQStructureArtifact {
   return {
     project: safeText(raw.project, "Untitled BOQ"),
     location: safeText(raw.location, "Unknown Location"),
@@ -1351,7 +1351,7 @@ function normalizeStructure(raw: StructurePassResponse): BOQStructureArtifact {
   };
 }
 
-function countNonHeaderItems(structure: BOQStructureArtifact): number {
+export function countNonHeaderItems(structure: BOQStructureArtifact): number {
   return structure.bills.reduce(
     (sum, bill) => sum + bill.items.filter((item) => !item.is_header).length,
     0
@@ -1406,7 +1406,7 @@ function countLabelMatches(text: string, description: string): { count: number; 
   return { count, excerpt };
 }
 
-function supportingDocsSatisfyRequirements(
+export function supportingDocsSatisfyRequirements(
   documents: GenerationInputDocument[],
   requiredAttachments: RequiredAttachment[]
 ): boolean {
@@ -1423,7 +1423,7 @@ function supportingDocsSatisfyRequirements(
   });
 }
 
-function applyDrawingCountHeuristics(
+export function applyDrawingCountHeuristics(
   structure: BOQStructureArtifact,
   quantities: QuantityPassResponse,
   documents: GenerationInputDocument[]
@@ -2279,7 +2279,7 @@ function summarizeRateQuality(
   };
 }
 
-async function fillRatesPass(
+export async function fillRatesPass(
   boq: BOQDocument,
   options?: { rateContext?: RateContext; usageCollector?: GeminiUsageCollector }
 ): Promise<BOQDocument> {
@@ -2712,7 +2712,7 @@ export async function generateBOQ(
   return fillRatesPass(boq, { rateContext: opts?.rateContext, usageCollector: opts?.usageCollector });
 }
 
-function mergeStructureAndQuantities(
+export function mergeStructureAndQuantities(
   structure: BOQStructureArtifact,
   quantities: QuantityPassResponse,
   documentClassification?: DocumentClassification,
