@@ -28,7 +28,7 @@ interface Props {
   disabled?: boolean;
 }
 
-const MAX_DOCS = 6;
+const MAX_DOCS = 20;
 const MAX_BYTES = 50 * 1024 * 1024;
 
 function FileIcon({ className }: { className?: string }) {
