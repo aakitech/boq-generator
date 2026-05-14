@@ -113,13 +113,26 @@ export default function GenerateBOQTab() {
     setUploadedDocs((current) => [...current, ...newDocs]);
     setError(null);
 
-    // Process in batches of 3 to avoid Gemini burst rate limits
-    const BATCH_SIZE = 3;
-    for (let i = 0; i < newDocs.length; i += BATCH_SIZE) {
-      const batch = newDocs.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch.map(processDoc));
-      if (i + BATCH_SIZE < newDocs.length) await new Promise((r) => setTimeout(r, 1500));
-    }
+    // Rolling concurrency pool — keep up to 6 extractions in-flight at all times.
+    // As each slot finishes the next queued file starts immediately.
+    const CONCURRENCY = 6;
+    const queue = [...newDocs];
+    let active = 0;
+    await new Promise<void>((resolve) => {
+      function next() {
+        while (active < CONCURRENCY && queue.length > 0) {
+          const doc = queue.shift()!;
+          active++;
+          processDoc(doc).finally(() => {
+            active--;
+            next();
+            if (active === 0 && queue.length === 0) resolve();
+          });
+        }
+        if (active === 0 && queue.length === 0) resolve();
+      }
+      next();
+    });
   }
 
   async function handleRetryDoc(doc: UploadedDoc) {
