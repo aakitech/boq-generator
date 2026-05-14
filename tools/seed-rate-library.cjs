@@ -9,7 +9,8 @@
  */
 "use strict";
 
-require("dotenv").config({ path: ".env.local" });
+const envFile = process.argv.find((a) => a.startsWith("--env="))?.slice(6) ?? ".env.local";
+require("dotenv").config({ path: envFile });
 
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
