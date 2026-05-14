@@ -26,6 +26,7 @@ interface Props {
   onAdd: (files: File[]) => void;
   onRemove: (id: string) => void;
   onRetry?: (doc: UploadedDoc) => void;
+  onRetryAll?: () => void;
   disabled?: boolean;
 }
 
@@ -83,7 +84,7 @@ function DocSubline({ doc }: { doc: UploadedDoc }) {
   return null;
 }
 
-export function DocumentList({ docs, onAdd, onRemove, onRetry, disabled }: Props) {
+export function DocumentList({ docs, onAdd, onRemove, onRetry, onRetryAll, disabled }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -136,8 +137,21 @@ export function DocumentList({ docs, onAdd, onRemove, onRetry, disabled }: Props
     );
   }
 
+  const failedDocs = docs.filter((d) => d.error);
+
   return (
     <div className="space-y-2">
+      {failedDocs.length > 1 && onRetryAll && !disabled && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onRetryAll}
+            className="text-amber-500 hover:text-amber-300 text-[11px] font-medium"
+          >
+            Retry all failed ({failedDocs.length})
+          </button>
+        </div>
+      )}
       <div className="space-y-1.5">
         {docs.map((doc) => (
           <div

@@ -113,25 +113,29 @@ export default function GenerateBOQTab() {
     setUploadedDocs((current) => [...current, ...newDocs]);
     setError(null);
 
-    // Rolling concurrency pool — keep up to 6 extractions in-flight at all times.
-    // As each slot finishes the next queued file starts immediately.
-    const CONCURRENCY = 6;
+    // Rolling concurrency pool — 3 slots with 600ms stagger to avoid Gemini Embedding RPM bursts.
+    const CONCURRENCY = 3;
+    const STAGGER_MS = 600;
     const queue = [...newDocs];
     let active = 0;
+    let slotIndex = 0;
     await new Promise<void>((resolve) => {
-      function next() {
+      function startNext() {
         while (active < CONCURRENCY && queue.length > 0) {
           const doc = queue.shift()!;
           active++;
-          processDoc(doc).finally(() => {
-            active--;
-            next();
-            if (active === 0 && queue.length === 0) resolve();
-          });
+          const delay = slotIndex++ * STAGGER_MS;
+          new Promise<void>((r) => setTimeout(r, delay))
+            .then(() => processDoc(doc))
+            .finally(() => {
+              active--;
+              startNext();
+              if (active === 0 && queue.length === 0) resolve();
+            });
         }
         if (active === 0 && queue.length === 0) resolve();
       }
-      next();
+      startNext();
     });
   }
 
@@ -140,6 +144,37 @@ export default function GenerateBOQTab() {
       current.map((d) => d.id === doc.id ? { ...d, processing: true, error: null } : d)
     );
     await processDoc(doc);
+  }
+
+  async function handleRetryAll() {
+    const failed = uploadedDocs.filter((d) => d.error);
+    if (failed.length === 0) return;
+    setUploadedDocs((current) =>
+      current.map((d) => d.error ? { ...d, processing: true, error: null } : d)
+    );
+    const CONCURRENCY = 3;
+    const STAGGER_MS = 600;
+    const queue = [...failed];
+    let active = 0;
+    let slotIndex = 0;
+    await new Promise<void>((resolve) => {
+      function startNext() {
+        while (active < CONCURRENCY && queue.length > 0) {
+          const doc = queue.shift()!;
+          active++;
+          const delay = slotIndex++ * STAGGER_MS;
+          new Promise<void>((r) => setTimeout(r, delay))
+            .then(() => processDoc(doc))
+            .finally(() => {
+              active--;
+              startNext();
+              if (active === 0 && queue.length === 0) resolve();
+            });
+        }
+        if (active === 0 && queue.length === 0) resolve();
+      }
+      startNext();
+    });
   }
 
   function handleRemoveDoc(id: string) {
@@ -191,7 +226,7 @@ export default function GenerateBOQTab() {
 
   return (
     <div className="space-y-4">
-      <DocumentList docs={uploadedDocs} onAdd={handleAddFiles} onRemove={handleRemoveDoc} onRetry={handleRetryDoc} disabled={stage === "generating"} />
+      <DocumentList docs={uploadedDocs} onAdd={handleAddFiles} onRemove={handleRemoveDoc} onRetry={handleRetryDoc} onRetryAll={handleRetryAll} disabled={stage === "generating"} />
 
       {error && (
         <div className="px-4 py-3 rounded bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
