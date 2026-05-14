@@ -25,6 +25,7 @@ interface Props {
   docs: UploadedDoc[];
   onAdd: (files: File[]) => void;
   onRemove: (id: string) => void;
+  onRetry?: (doc: UploadedDoc) => void;
   disabled?: boolean;
 }
 
@@ -82,7 +83,7 @@ function DocSubline({ doc }: { doc: UploadedDoc }) {
   return null;
 }
 
-export function DocumentList({ docs, onAdd, onRemove, disabled }: Props) {
+export function DocumentList({ docs, onAdd, onRemove, onRetry, disabled }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -153,6 +154,16 @@ export function DocumentList({ docs, onAdd, onRemove, disabled }: Props) {
               </div>
             </div>
             <DocStatusIcon doc={doc} />
+            {!disabled && doc.error && onRetry && (
+              <button
+                type="button"
+                onClick={() => onRetry(doc)}
+                className="text-amber-500 hover:text-amber-300 shrink-0 text-[11px] font-medium"
+                aria-label="Retry"
+              >
+                Retry
+              </button>
+            )}
             {!disabled && (
               <button
                 type="button"
