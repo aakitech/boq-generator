@@ -2418,23 +2418,49 @@ export async function fillRatesPass(
     confidence?: number | null;
   }>();
 
-  for (const batch of chunkArray(unresolvedItems, RATE_FILL_BATCH_SIZE)) {
-    const result = await generateStructuredContent<{
-      items: Array<{
-        item_key: string;
-        rate: number | null;
-        amount: number | null;
-        source_category?: string | null;
-        rationale?: string | null;
-        confidence?: number | null;
-      }>
-    }>({
-      responseSchema: RATES_SCHEMA,
-      temperature: 0.1,
-      useFastModel: false,
-      usageCollector: options?.usageCollector,
-      usageOperation: "rate_fill_batch",
-      systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}
+  // Run rate-fill batches concurrently (batches are independent — no shared state).
+  // Cap at 5 concurrent Pro calls to stay well within 150 RPM Tier 1 limit.
+  const RATE_FILL_CONCURRENCY = 5;
+  const batches = chunkArray(unresolvedItems, RATE_FILL_BATCH_SIZE);
+  const queue = [...batches];
+  let active = 0;
+  const allResults: Array<{
+    item_key: string;
+    rate: number | null;
+    amount: number | null;
+    source_category?: string | null;
+    rationale?: string | null;
+    confidence?: number | null;
+  }> = [];
+
+  await new Promise<void>((resolve, reject) => {
+    function next() {
+      while (active < RATE_FILL_CONCURRENCY && queue.length > 0) {
+        const batch = queue.shift()!;
+        active++;
+        (async () => {
+          const anchors = await buildRateLibraryAnchors(
+            batch,
+            options?.rateContext?.province,
+            options?.rateContext?.projectType,
+            options?.rateContext?.marginPct ?? 0
+          );
+          return generateStructuredContent<{
+            items: Array<{
+              item_key: string;
+              rate: number | null;
+              amount: number | null;
+              source_category?: string | null;
+              rationale?: string | null;
+              confidence?: number | null;
+            }>
+          }>({
+            responseSchema: RATES_SCHEMA,
+            temperature: 0.1,
+            useFastModel: false,
+            usageCollector: options?.usageCollector,
+            usageOperation: "rate_fill_batch",
+            systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}
 
 RATE PROVENANCE RULES:
 1. Prefer existing workbook pricing conventions when similar items already have rates.
@@ -2442,28 +2468,42 @@ RATE PROVENANCE RULES:
 3. Use embedded market heuristics only when workbook-local evidence is not sufficient.
 4. Return source_category as one of: embedded_market_heuristic, workbook_local_pattern, project_consistency_inference, external_reference_document.
 5. Return a short rationale and confidence between 0 and 1 for every filled rate.`,
-      prompt: `Estimate ZMW rates for the following BOQ items. Return rate, amount, source_category, rationale, and confidence for each item_key.
+            prompt: `Estimate ZMW rates for the following BOQ items. Return rate, amount, source_category, rationale, and confidence for each item_key.
 
 Existing workbook rates:
 ${JSON.stringify(buildExistingRateReferences(existingRates, batch))}
 
 Historical anchors from accepted Zambian BOQs (use as concrete reference points — prefer these over generic ranges when description and unit match closely):
-${await buildRateLibraryAnchors(batch, options?.rateContext?.province, options?.rateContext?.projectType, options?.rateContext?.marginPct ?? 0)}
+${anchors}
 
 Items to fill:
 ${JSON.stringify(batch)}`,
-    });
-
-    for (const r of result.items ?? []) {
-      if (r.item_key) {
-        rateMap.set(r.item_key, {
-          rate: r.rate ?? null,
-          amount: r.amount ?? null,
-          source_category: r.source_category ?? null,
-          rationale: r.rationale ?? null,
-          confidence: r.confidence ?? null,
-        });
+          });
+        })()
+          .then((result) => {
+            allResults.push(...(result.items ?? []));
+          })
+          .catch(reject)
+          .finally(() => {
+            active--;
+            next();
+            if (active === 0 && queue.length === 0) resolve();
+          });
       }
+      if (active === 0 && queue.length === 0) resolve();
+    }
+    next();
+  });
+
+  for (const r of allResults) {
+    if (r.item_key) {
+      rateMap.set(r.item_key, {
+        rate: r.rate ?? null,
+        amount: r.amount ?? null,
+        source_category: r.source_category ?? null,
+        rationale: r.rationale ?? null,
+        confidence: r.confidence ?? null,
+      });
     }
   }
 

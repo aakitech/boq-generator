@@ -56,6 +56,17 @@ AREAS AND QUANTITIES
 - Any item counts visible
 - Any quantities or take-off notes
 
+PERIMETER AND EXTERNAL WORKS
+- Any boundary/perimeter dimensions visible (for fencing, external walls, retaining walls)
+- Site coverage area or plot dimensions if shown
+- External hardstanding, paving, parking bays, access roads visible on site plan
+- Any drainage channels, manholes, or external services shown
+
+INFERRED QUANTITIES (when schedule is absent)
+- If rooms of the same type are visible but no schedule is provided, count them and state dimensions of a typical unit
+- Example: "8 classrooms visible, typical size approx 8000×6000mm — no finish schedule shown"
+- Do not invent schedules; only report what geometry is clearly visible and countable
+
 If certain information is absent from the drawing, say so briefly. Do not invent or assume — only report what is visible.`;
 
 interface DrawingExtractionResult {

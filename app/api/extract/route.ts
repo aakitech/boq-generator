@@ -16,7 +16,9 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB for all documents
-const MIN_DIRECT_TEXT_LENGTH = 120;
+const DRAWING_CHARS_PER_PAGE_THRESHOLD = 400;
+const DRAWING_FILENAME_PATTERN =
+  /\b(?:dwg|drawing|floor.?plan|site.?plan|elevation|section|structural|services|rev\s*[a-z])\b|ZS[A-Z0-9]|\b[A-Z]{2,5}\d{3,}\b/i;
 const GEMINI_VISION_MODELS = [
   process.env.GEMINI_SOW_MODEL_FALLBACK,
   process.env.GEMINI_SOW_MODEL_PRIMARY,
@@ -296,8 +298,10 @@ export async function POST(req: NextRequest) {
       pages = data.numpages;
 
       const trimmedText = text.trim();
+      const charsPerPage = trimmedText.length / (pages ?? 1);
       const looksLikeDrawing =
-        trimmedText.length < MIN_DIRECT_TEXT_LENGTH ||
+        charsPerPage < DRAWING_CHARS_PER_PAGE_THRESHOLD ||
+        DRAWING_FILENAME_PATTERN.test(filename) ||
         /drawing|layout|elevation|section|detail|floor plan|site plan/i.test(trimmedText);
 
       if (looksLikeDrawing) {
