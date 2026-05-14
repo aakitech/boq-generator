@@ -90,6 +90,7 @@ const GEMINI_FAST_FALLBACK_MODEL = process.env.GEMINI_MODEL_FAST_FALLBACK || "ge
 const MAX_ATTEMPTS_PER_MODEL = 3;
 const RATE_FILL_BATCH_SIZE = 24;
 const HIGH_DEMAND_RETRY_BASE_MS = 1500;
+const GEMINI_CALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min per call
 const RETRYABLE_RETRY_BASE_MS = 1000;
 const OPENAI_STRUCTURED_OUTPUT_NAME = "structured_response";
 const SOW_HEADING_TERMS = [
@@ -583,10 +584,12 @@ async function generateStructuredContent<T>({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           generationConfig: generationConfig as any,
         });
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), GEMINI_CALL_TIMEOUT_MS);
         const result = await Sentry.startSpan(
           { name: `ai.gemini/${gModel}`, op: "ai.call", attributes: { model: gModel } },
-          () => model.generateContent(prompt)
-        );
+          () => model.generateContent(prompt, { signal: abortController.signal } as never)
+        ).finally(() => clearTimeout(timeoutId));
         recordGeminiUsage(usageCollector, gModel, usageOperation ?? "structured_content", result.response.usageMetadata);
         return parseJsonResponse<T>(result.response.text());
       } catch (geminiError) {
@@ -2428,7 +2431,7 @@ async function fillRatesPass(
     }>({
       responseSchema: RATES_SCHEMA,
       temperature: 0.1,
-      useFastModel: true,
+      useFastModel: false,
       usageCollector: options?.usageCollector,
       usageOperation: "rate_fill_batch",
       systemInstruction: `You are a quantity surveyor estimating rates for a Zambian construction BOQ.\n\n${RATES_INSTRUCTION}${contextBlock}
