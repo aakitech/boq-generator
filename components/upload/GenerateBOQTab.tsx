@@ -198,7 +198,7 @@ export default function GenerateBOQTab() {
       )}
 
       {uploadedDocs.length === 0 && (
-        <p className="text-center text-xs text-[#555]">PDF or Word · up to 6 files · 50 MB each</p>
+        <p className="text-center text-xs text-[#555]">PDF or Word · up to 20 files · 50 MB each</p>
       )}
     </div>
   );

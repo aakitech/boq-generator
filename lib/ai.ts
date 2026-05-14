@@ -561,8 +561,11 @@ async function generateStructuredContent<T>({
     }
   }
 
-  // Gemini fallback — try each model up to MAX_ATTEMPTS_PER_MODEL times with backoff before moving on
-  const geminiModels = Array.from(new Set([geminiModel, GEMINI_FAST_FALLBACK_MODEL]));
+  // Gemini fallback — for primary (non-fast) calls, only use pro; flash truncates large structured responses.
+  // For fast calls, flash is the primary and pro is the fallback.
+  const geminiModels = useFastModel
+    ? Array.from(new Set([geminiModel, GEMINI_FALLBACK_MODEL]))
+    : [geminiModel];
   const geminiErrors: string[] = [];
   for (const gModel of geminiModels) {
     let lastModelError: unknown;
@@ -572,6 +575,7 @@ async function generateStructuredContent<T>({
           responseMimeType: "application/json",
           responseSchema: responseSchema as any,
           temperature,
+          maxOutputTokens: 65536,
         };
         const model = getGenAI().getGenerativeModel({
           model: gModel,
@@ -592,7 +596,11 @@ async function generateStructuredContent<T>({
           msg.includes("503") ||
           msg.includes("overloaded") ||
           msg.includes("high demand") ||
-          msg.includes("unavailable");
+          msg.includes("unavailable") ||
+          msg.includes("fetch failed") ||
+          msg.includes("ECONNRESET") ||
+          msg.includes("ETIMEDOUT") ||
+          msg.includes("network");
         if (isTransient && attempt < MAX_ATTEMPTS_PER_MODEL) {
           await new Promise((r) => setTimeout(r, HIGH_DEMAND_RETRY_BASE_MS * attempt));
           continue;
@@ -1788,21 +1796,32 @@ EARTHWORKS & SITE CLEARANCE:
 - Dispose of surplus excavated material off site: 45–120 ZMW/m³
 
 CONCRETE WORKS (measured net in place):
-- Blinding 50mm Grade 15 in bases: 1,200–2,200 ZMW/m² (or 2,200–3,500 ZMW/m³)
-- Concrete Grade 25 in foundation trenches: 2,500–4,000 ZMW/m³
+- Blinding 50mm Grade 15/20 in bases: 1,200–2,200 ZMW/m² (or 2,200–3,800 ZMW/m³)
+- Concrete Grade 20/25 in foundation trenches/mass: 2,500–4,000 ZMW/m³
 - Concrete Grade 25 in bases and pads: 2,500–4,000 ZMW/m³
-- Concrete Grade 25 surface bed (measured separately from DPM): 2,800–4,200 ZMW/m³
+- Concrete Grade 25 surface bed: 2,800–4,200 ZMW/m³
 - Concrete Grade 30 in stub columns: 3,800–5,500 ZMW/m³
 - Concrete Grade 30 in beams and lintels: 4,000–5,800 ZMW/m³
-- Concrete Grade 30 in suspended slabs: 4,200–6,000 ZMW/m³
-- Reinforcement Y-bars 10mm–32mm (supply, cut, bend, fix): 38–58 ZMW/kg
-- Reinforcement R-bars (mild steel links/stirrups): 36–52 ZMW/kg
+- Concrete Grade 30 in suspended slabs (250–300mm thick): 4,200–6,500 ZMW/m³
+- Concrete Grade 30 in reinforced walls (civil/water): 4,500–6,500 ZMW/m³
+- Concrete Grade 30 in pipe encasement/surround: 3,500–5,000 ZMW/m³
+- Reinforcement Y-bars 10mm–32mm (supply, cut, bend, fix): 38–62 ZMW/kg
+- Reinforcement R-bars (mild steel links/stirrups): 36–55 ZMW/kg
 - BRC mesh type 193 (1.93 kg/m²): 200–380 ZMW/m²
 - BRC mesh type 257 (2.57 kg/m²): 260–500 ZMW/m²
-- Wrot formwork to soffits of slabs: 300–600 ZMW/m²
+- Formwork to soffits of slabs (steel shutter, water-retaining finish): 400–700 ZMW/m²
+- Formwork to soffit of intermediate/walkway slabs: 400–700 ZMW/m²
+- Formwork to sides of base slabs/walls (steel shutter, smooth finish): 350–650 ZMW/m²
+- Formwork to sides of walls (water-retaining, steel shutter): 400–700 ZMW/m²
+- Formwork to sides of pipe encasement: 280–500 ZMW/m²
 - Sawn formwork to sides of beams/lintels: 200–420 ZMW/m²
 - Formwork to edges of slabs not exceeding 200mm: 80–180 ZMW/m
+- Chamfer 20×20mm to exposed concrete edges: 80–160 ZMW/m
+- Formwork tie bolts for water-retaining structures: 900–1,800 ZMW/No.
 - DPM 500/1000 gauge polythene (measured net): 45–90 ZMW/m²
+- Dowel bars Y12, 800mm long grouted into existing concrete: 600–1,200 ZMW/No.
+- Drill 18mm holes into existing concrete 200mm deep: 1,500–2,800 ZMW/No.
+- Form pockets in RC walls/slabs (various sizes): 250–600 ZMW/No.
 
 MASONRY & WALLING (measured flat, gross area):
 - 140mm concrete hollow blockwork in foundations: 290–440 ZMW/m²
@@ -1842,10 +1861,29 @@ ROOFING:
 - Treated timber wall plate 100×75mm supply and fix: 80–160 ZMW/m
 - Pre-fabricated roof trusses supply and erect (m² of plan area): 380–750 ZMW/m²
 
-STRUCTURAL STEEL:
-- Structural steel sections (fabricated, primed, erected): 90–180 ZMW/kg
-- Steel base plates fabricated and fixed: 85–170 ZMW/kg
-- High-strength bolts M16–M24 supply and fix: 220–500 ZMW/No.
+STRUCTURAL STEEL (fabricated, hot-dip galvanized where specified, erected all-in):
+- Structural steel columns/beams/channels (Grade S355JR, galvanized): 130–200 ZMW/kg
+- Structural steel purlins/bracing/diaphragms (galvanized): 120–180 ZMW/kg
+- Crane girders (heavy sections, galvanized): 150–220 ZMW/kg
+- Steel base plates fabricated and fixed (galvanized): 130–190 ZMW/kg
+- Stiffener/packing/cleat plates (galvanized): 140–200 ZMW/kg
+- Walkway grating (RECTAGRID or similar, galvanized): 900–1,800 ZMW/m²
+- Tubular handrail 1.0m high (galvanized, ball-type): 1,200–2,500 ZMW/m
+- Vastrap/chequer plate 3mm on steel frame (galvanized): 800–1,400 ZMW/m
+- Kick plate 130×8mm galvanized: 900–1,600 ZMW/m
+- Crane rail (45×45mm galvanized): 2,200–3,500 ZMW/m
+- High-strength bolts M16 supply and fix: 250–450 ZMW/No.
+- High-strength bolts M20 supply and fix: 300–500 ZMW/No.
+- High-strength bolts M24 supply and fix: 400–700 ZMW/No.
+- Chemical anchor bolts ø24mm supply and fix: 350–600 ZMW/No.
+- Grout pocket after steel installation: 200–400 ZMW/No.
+- Shop weld 6mm fillet per metre: 80–150 ZMW/m
+- Shop weld 8mm fillet per metre: 120–220 ZMW/m
+- Drill holes in steelwork: 60–120 ZMW/No.
+- Grind smooth sharp edges: 30–70 ZMW/m
+- Roofing — IBR 0.5mm/0.8mm galvanized supply and fix: 300–550 ZMW/m²
+- Remove existing handrail: 80–180 ZMW/m
+- PFC stop log guides supply and fix: 800–1,600 ZMW/m
 - Anti-corrosion primer 1 coat on steel: 45–90 ZMW/m²
 
 JOINERY — DOORS & WINDOWS:
@@ -1858,6 +1896,32 @@ JOINERY — DOORS & WINDOWS:
 - Toilet indicator bolt: 300–700 ZMW/No.
 - Pair of 100mm butt hinges: 200–450 ZMW/No.
 - Door closer (overhead): 1,500–3,500 ZMW/No.
+
+CIVIL PIPEWORK (water supply/transmission, all-in supply, handle, lay, join, test):
+- 300NB steel pipe supply and fix: 1,800–3,200 ZMW/m
+- 350NB steel pipe supply and fix: 2,200–3,800 ZMW/m
+- 400NB steel pipe supply and fix: 2,600–4,500 ZMW/m
+- 400ND mPVC/MPVC Class 6/Class 9/PN9 pipe: 700–1,100 ZMW/m
+- 300NB Non-Return Valve (NRV): 35,000–60,000 ZMW/No.
+- 300NB Ball Valve (BV): 45,000–75,000 ZMW/No.
+- 80ND Air Release Valve (ARV) assembly: 10,000–20,000 ZMW/No.
+- Eccentric reducer 300×350NB or 350×400NB: 12,000–22,000 ZMW/No.
+- Gripped flange adaptor 400NB: 11,000–20,000 ZMW/No.
+- Delivery valves 250ND: 22,000–40,000 ZMW/No.
+- Scour valve assembly: 8,000–18,000 ZMW/No.
+- Horizontal bends to pipeline: 4,000–9,000 ZMW/No.
+- Off-take/connection to existing pipe: 60,000–120,000 ZMW/No.
+- Pipe bedding/blanket material (supply and place): 180–320 ZMW/m³
+- Trench backfill (selected excavated material, compacted in layers): 60–120 ZMW/m³
+- Fine screen frames (supply and fix, steel): 12,000–25,000 ZMW/No.
+- Wedge wire fine screen SS304 (supply and fix): 12,000–22,000 ZMW/No.
+
+MECHANICAL & ELECTRICAL (water infrastructure):
+- Vertical turbine pump (large, 132kW+ class): 400,000–700,000 ZMW/No.
+- Electric motor 132kW/4P/400V/TEFC: 200,000–380,000 ZMW/No.
+- Pump support frames (galvanized): 35,000–65,000 ZMW/No.
+- Clamp-on ultrasonic Doppler flowmeter: 80,000–140,000 ZMW/No.
+- Small manual gantry crane for pump maintenance: 80,000–140,000 ZMW/No.
 
 PLUMBING & DRAINAGE:
 - uPVC soil/vent pipe 110mm supply and fix: 300–580 ZMW/m
@@ -1895,14 +1959,16 @@ PAINTING & DECORATION:
 - Anti-corrosion primer + gloss 2 coats to steelwork: 90–200 ZMW/m²
 
 RATE ESTIMATION RULES:
-1. All rates are all-in (material + labour + plant + waste + contractor O&P) unless the item explicitly says "supply only" or "lay only".
-2. Use the mid-point of the range as your base rate. Adjust up toward the top of the range for: specialist materials, remote sites, small quantities (under 10% of typical bill quantity).
-3. Historical anchors (provided separately) take precedence over these ranges when the description and unit match closely — treat anchors as real market evidence.
-4. Set rate to null only for: is_header=true rows, Provisional Sum items (the PS amount is the "rate"), items where qty is also null and no reasonable assumption can be made.
-5. Compute amount = qty × rate exactly. Never leave amount null when both qty and rate are set.
-6. All rates in Zambian Kwacha (ZMW).
-7. Preliminary lump-sum items (mobilisation, dewatering, ant-proofing as Item): price the Item rate as the total cost — qty is 1.
-8. "Ditto" items inherit the rate of the immediately preceding item with the same unit in the same bill section.`;
+1. Return BASE all-in rates: material + labour + plant + waste only. Do NOT add contractor O&P margin — that is applied separately by the system after you return the rate.
+2. Use the mid-point of the range as your base. Adjust toward the top for: specialist materials, small quantities, items requiring precision finishing. Apply the site-specific accessibility and labour adjustments from the SITE-SPECIFIC PRICING RULES block below.
+3. Historical anchors (provided separately) take precedence over these ranges when description and unit match closely. Treat anchors as real executed market evidence — don't deviate by more than 20% without a reason.
+4. Set rate to null ONLY for: is_header=true rows, and items where qty is also null AND the scope is genuinely unknowable. Do NOT leave rate null because an item is unusual or specialist — estimate it from the ranges.
+5. Provisional Sum items: rate = the PS amount stated in the description (qty=1). Never leave a PS null.
+6. Compute amount = qty × rate exactly. Never leave amount null when both qty and rate are known.
+7. All rates in Zambian Kwacha (ZMW).
+8. Preliminary lump-sum Items (site establishment, setting out, insurance, health & safety, as-built drawings, bonds, dewatering): price every single one using the PRELIMINARIES ranges or project-value anchors provided. Zero tolerance for null on these — they appear in every civil contract.
+9. "Ditto" rows: inherit the immediately preceding same-unit rate in the same bill section. If no parent, price independently.
+10. Structural steel in kg: use the STRUCTURAL STEEL ranges. Galvanized = upper half of range. Hot-dip galvanized fabricated sections (columns, beams, purlins, crane girders) = 130–200 ZMW/kg all-in erected.`;
 
 const RATES_SCHEMA = {
   type: SchemaType.OBJECT,
@@ -2069,11 +2135,12 @@ function chunkArray<T>(items: T[], size: number): Array<T[]> {
 }
 
 function buildRateLibraryAnchors(
-  batch: Array<{ item_key: string; description: string; unit: string }>
+  batch: Array<{ item_key: string; description: string; unit: string }>,
+  province?: string
 ): string {
   const lines: string[] = [];
   for (const item of batch) {
-    const anchors = findRateAnchors(item.description, item.unit, 2, 0.25);
+    const anchors = findRateAnchors(item.description, item.unit, 2, 0.25, province);
     for (const anchor of anchors) {
       lines.push(
         `- "${anchor.description}" (${anchor.unit}): ${anchor.rate} ZMW — from ${anchor.project}, ${anchor.province} [match score: ${anchor.score.toFixed(2)}]`
@@ -2099,7 +2166,7 @@ function buildExistingRateReferences(
 
 function classifyPricingCategory(description: string, unit: string): BOQPricingCategory {
   const text = `${normalizeRateKey(description, unit)} ${normalizeRateKey(unit, "")}`.trim();
-  if (/\bditto\b|\bincluding\b|\bincl\b/.test(text)) return "ditto_reference";
+  if (/\bditto\b/.test(text)) return "ditto_reference";
   if (/\bant proof\b|\bantproof\b|\btermite\b|\binsecticide\b|\btreatment\b|\bdestroy termites\b/.test(text)) {
     return "treatment_service";
   }
@@ -2127,12 +2194,8 @@ function classifyPricingCategory(description: string, unit: string): BOQPricingC
 }
 
 function requiresLocalPrecedent(category: BOQPricingCategory): boolean {
-  return (
-    category === "ditto_reference" ||
-    category === "pipe_fitting" ||
-    category === "steel_fabrication" ||
-    category === "treatment_service"
-  );
+  // Only truly skip ditto rows with no parent — all other categories go to AI pricing
+  return category === "ditto_reference";
 }
 
 function defaultSkipReason(category: BOQPricingCategory): BOQRateSkipReason {
@@ -2375,7 +2438,7 @@ Existing workbook rates:
 ${JSON.stringify(buildExistingRateReferences(existingRates, batch))}
 
 Historical anchors from accepted Zambian BOQs (use as concrete reference points — prefer these over generic ranges when description and unit match closely):
-${buildRateLibraryAnchors(batch)}
+${buildRateLibraryAnchors(batch, options?.rateContext?.province)}
 
 Items to fill:
 ${JSON.stringify(batch)}`,
@@ -2423,14 +2486,21 @@ ${JSON.stringify(batch)}`,
         }
 
         const qty = item.qty;
-        const amount = rateData.amount ?? (rate !== null && qty !== null ? +(qty * rate).toFixed(2) : null);
+        // Apply marginPct programmatically only to pure AI heuristic rates —
+        // library anchors and workbook rates already embed the contractor's margin.
+        const marginPct = options?.rateContext?.marginPct ?? 0;
+        const sourceCategory = (rateData.source_category as BOQItem["rate_source"]) ?? "embedded_market_heuristic";
+        const appliedRate = (marginPct > 0 && sourceCategory === "embedded_market_heuristic")
+          ? +(rate * (1 + marginPct / 100)).toFixed(2)
+          : rate;
+        const amount = (appliedRate !== null && qty !== null) ? +(qty * appliedRate).toFixed(2) : (rateData.amount ?? null);
         aiMatches += 1;
         return {
           ...item,
           pricing_category: pricingCategory,
-          rate,
+          rate: appliedRate,
           amount,
-          rate_source: (rateData.source_category as BOQItem["rate_source"]) ?? "embedded_market_heuristic",
+          rate_source: sourceCategory,
           rate_source_detail: rateData.rationale ?? null,
           rate_confidence: rateData.confidence ?? null,
           rate_skip_reason: null,
@@ -2458,41 +2528,80 @@ ${JSON.stringify(batch)}`,
 }
 
 export type RateContext = {
-  province: string;        // e.g. "Lusaka", "Copperbelt", "Eastern"
-  projectType: string;     // "building" | "civil" | "water_sanitation" | "road" | "mep" | "mixed"
-  accessibility: string;  // "main_road" | "gravel_road" | "remote"
-  labourSource: string;   // "local_unskilled" | "mixed" | "imported_skilled"
-  marginPct: number;      // e.g. 10, 15, 20
+  province: string;           // e.g. "Lusaka", "Copperbelt", "Eastern"
+  projectType: string;        // "building" | "civil" | "water_sanitation" | "road" | "mep" | "mixed"
+  accessibility: string;      // "main_road" | "gravel_road" | "remote"
+  labourSource: string;       // "local_unskilled" | "mixed" | "imported_skilled"
+  marginPct: number;          // e.g. 10, 15, 20
+  estimatedValueZMW?: number | null;  // estimated total project value — used to anchor P&G lump sums
+  isGovernmentTender?: boolean;       // true = SABS/FIDIC structure, PS handling, bond requirements
 };
 
 function buildRateContextBlock(ctx: RateContext): string {
-  const projectTypeLabel =
-    ctx.projectType === "building" ? "Building construction (residential/commercial/institutional)" :
-    ctx.projectType === "civil" ? "Civil works (structures, drainage, earthworks)" :
-    ctx.projectType === "water_sanitation" ? "Water & sanitation (pipework, tanks, treatment)" :
-    ctx.projectType === "road" ? "Road & pavement works" :
-    ctx.projectType === "mep" ? "Mechanical, electrical & plumbing (MEP)" :
-    "Mixed / multi-discipline works";
+  // Accessibility multiplier — applied to all material-supply components
+  const accessMultiplier =
+    ctx.accessibility === "remote" ? 1.30 :
+    ctx.accessibility === "gravel_road" ? 1.15 : 1.0;
+  const accessNote =
+    ctx.accessibility === "remote"
+      ? "Remote/bush site: multiply all material-supply rates by 1.30 before adding labour."
+      : ctx.accessibility === "gravel_road"
+      ? "Gravel road access: multiply all material-supply rates by 1.15 before adding labour."
+      : "Main road access: use standard rates, no transport premium.";
 
-  const accessibilityLabel =
-    ctx.accessibility === "main_road" ? "Good access (main road) — standard transport costs" :
-    ctx.accessibility === "gravel_road" ? "Gravel/secondary road — add 10–20% transport premium" :
-    "Remote/bush site — add 25–40% transport premium on materials";
+  // Labour adjustment — shift within range
+  const labourNote =
+    ctx.labourSource === "local_unskilled"
+      ? "Labour is mostly local unskilled: use the LOWER END of all labour-rate ranges. Skilled trades are ~20% cheaper than imported equivalents."
+      : ctx.labourSource === "imported_skilled"
+      ? "Labour is imported/specialist: use the UPPER END of all labour-rate ranges. Add 15–25% premium on all labour components."
+      : "Mixed labour: use MID-RANGE for all labour components.";
 
-  const labourLabel =
-    ctx.labourSource === "local_unskilled" ? "Mostly local unskilled labour available (use lower end of skilled rates)" :
-    ctx.labourSource === "mixed" ? "Mix of local and imported skilled trades (use mid-range rates)" :
-    "Mostly imported or specialist skilled labour required (use upper-end rates)";
+  // P&G anchoring from project value
+  let pgNote = "";
+  if (ctx.estimatedValueZMW) {
+    const val = ctx.estimatedValueZMW;
+    const mobRange = [Math.round(val * 0.02), Math.round(val * 0.04)];
+    const insuranceRange = [Math.round(val * 0.015), Math.round(val * 0.025)];
+    const contingencyRange = [Math.round(val * 0.05), Math.round(val * 0.10)];
+    pgNote = `
+ESTIMATED PROJECT VALUE: ZMW ${val.toLocaleString()}
+Use this to anchor Preliminary & General lump-sum items:
+- Mobilisation/demobilisation: ZMW ${mobRange[0].toLocaleString()}–${mobRange[1].toLocaleString()} (2–4% of works)
+- Insurance & performance bond: ZMW ${insuranceRange[0].toLocaleString()}–${insuranceRange[1].toLocaleString()} (1.5–2.5% of works)
+- Contingency (if PS): ZMW ${contingencyRange[0].toLocaleString()}–${contingencyRange[1].toLocaleString()} (5–10% of works)
+- Site establishment, setting out, health & safety, as-built drawings: each ZMW ${Math.round(val * 0.005).toLocaleString()}–${Math.round(val * 0.015).toLocaleString()}
+Do NOT leave these as null — price every P&G item using these anchors.`;
+  } else {
+    pgNote = `
+No project value provided. Price P&G items using the PRELIMINARIES ranges in the rate reference above.
+Do NOT leave P&G items null — estimate every single one.`;
+  }
 
-  return `
-SITE-SPECIFIC CONTEXT — adjust all rates accordingly:
-- Province: ${ctx.province}
-- Project type: ${projectTypeLabel}
-- Site accessibility: ${accessibilityLabel}
-- Labour: ${labourLabel}
-- Target overhead & profit margin: ${ctx.marginPct}% (apply this markup on top of base rates)
+  // Government tender specifics
+  const govNote = ctx.isGovernmentTender
+    ? `
+GOVERNMENT TENDER (SABS/FIDIC):
+- P&G section follows SABS 1200A: fixed-charge items + time-related items + provisional sums.
+- All Provisional Sums must be priced at the stated PS amount (qty=1, rate=PS value).
+- Performance bond: typically 10% of contract sum — price as Item if present.
+- Insurance: Contractor's All Risks + Public Liability — price as Item (1.5–2% of works).
+- Overhead charges & profit on PS items: typically 15% — price as % item if present.`
+    : `
+PRIVATE/COMMERCIAL CONTRACT:
+- P&G items are typically fewer and consolidated.
+- Price mobilisation, site establishment, and insurance as single all-in lump sums.`;
 
-Apply these adjustments consistently. Transport-sensitive items (materials, concrete, steel) are most affected by accessibility. Weight rate library anchors toward entries from similar project types.`.trim();
+  return `SITE-SPECIFIC PRICING RULES — these override the generic ranges above where they conflict:
+
+Province: ${ctx.province} (use ZPPA ${ctx.province} provincial rates where available)
+Project type: ${ctx.projectType.replace("_", " ")}
+Margin: ${ctx.marginPct}% O&P — this is already applied programmatically to AI-estimated rates, so do NOT add it again in your rates. Return base all-in rates (material + labour + plant + waste) WITHOUT additional margin markup.
+
+ACCESSIBILITY: ${accessNote}
+LABOUR: ${labourNote}
+${pgNote}
+${govNote}`.trim();
 }
 
 export async function fillMissingRatesInExistingBOQ(
