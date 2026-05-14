@@ -1,7 +1,20 @@
 import * as Sentry from "@sentry/nextjs";
 import { inngest } from "@/lib/inngest";
 import { createServiceClient } from "@/lib/supabase/server";
-import { generateBOQ, validateSOW } from "@/lib/ai";
+import {
+  validateSOW,
+  classifyProjectStructure,
+  generateStructure,
+  normalizeStructure,
+  countNonHeaderItems,
+  extractQuantities,
+  applyDrawingCountHeuristics,
+  mergeStructureAndQuantities,
+  fillRatesPass,
+  buildPromptBundle,
+  buildSourceBundle,
+  supportingDocsSatisfyRequirements,
+} from "@/lib/ai";
 import type { GenerationInputDocument, GeminiUsageCollector } from "@/lib/ai";
 import type { RateContext } from "@/lib/ai";
 import { creditsForGeneratedBoq, summarizeAIUsage, MAX_GENERATION_CREDITS } from "@/lib/gemini-pricing";
@@ -24,7 +37,7 @@ async function markGenerationFailed(boqId: string, error: unknown) {
 }
 
 export const generateBOQJob = inngest.createFunction(
-  { id: "generate-boq", retries: 1, timeouts: { finish: "15m" }, triggers: [{ event: "boq/generate.requested" }] },
+  { id: "generate-boq", retries: 1, timeouts: { finish: "20m" }, triggers: [{ event: "boq/generate.requested" }] },
   async ({ event, step }) => {
     const { boq_id, documents, rate_context, user_id, user_email } = event.data as {
       boq_id: string;
@@ -35,6 +48,7 @@ export const generateBOQJob = inngest.createFunction(
     };
 
     try {
+      // Step 1: mark processing
       await step.run("mark-processing", async () => {
         return Sentry.startSpan({ name: "inngest.generate-boq/mark-processing", op: "inngest.step" }, async () => {
           const db = createServiceClient();
@@ -49,41 +63,109 @@ export const generateBOQJob = inngest.createFunction(
         });
       });
 
-      const result = await step.run("generate", async () => {
-        return Sentry.startSpan({ name: "inngest.generate-boq/generate", op: "inngest.step" }, async () => {
+      // Step 2: validate SOW — fast, ~10-20s
+      const validation = await step.run("validate-sow", async () => {
+        return Sentry.startSpan({ name: "inngest.generate-boq/validate-sow", op: "inngest.step" }, async () => {
           const usageCollector: GeminiUsageCollector = { entries: [] };
           const validationText = documents
             .map((d) => d.text.slice(0, 3000))
             .join("\n\n---\n\n");
-
-          const validation = await validateSOW(validationText, {
+          const result = await validateSOW(validationText, {
             supportingDocsCount: documents.length - 1,
             usageCollector,
           });
+          if (result.should_block_generation) {
+            throw new Error(result.reason || "These documents can't be used to generate a BOQ.");
+          }
+          return { validation: result, usage: usageCollector.entries };
+        });
+      });
 
-          if (validation.should_block_generation) {
-            throw new Error(validation.reason || "These documents can't be used to generate a BOQ.");
+      // Step 3: structure pass — ~60-120s
+      const structureResult = await step.run("generate-structure", async () => {
+        return Sentry.startSpan({ name: "inngest.generate-boq/generate-structure", op: "inngest.step" }, async () => {
+          const usageCollector: GeminiUsageCollector = { entries: [] };
+          const truncated = documents.map((d) => ({
+            ...d,
+            text: d.text.length > 80000 ? d.text.slice(0, 80000) + "\n...[truncated]" : d.text,
+          }));
+          const bundleText = buildPromptBundle(truncated);
+          const { structure_type: structureMode, blocks } = await classifyProjectStructure(truncated, usageCollector);
+
+          let structureRaw = await generateStructure(bundleText, false, structureMode, blocks, usageCollector);
+          let structure = normalizeStructure(structureRaw);
+          structure.structure_mode = structureMode;
+
+          if (countNonHeaderItems(structure) === 0) {
+            structureRaw = await generateStructure(bundleText, true, structureMode, blocks, usageCollector);
+            structure = normalizeStructure(structureRaw);
+            structure.structure_mode = structureMode;
           }
 
+          if (countNonHeaderItems(structure) === 0) {
+            throw new Error(
+              "Could not extract BOQ structure from SOW (no measurable items found). Please upload a clearer scope document."
+            );
+          }
+
+          return { structure, bundleText, usage: usageCollector.entries };
+        });
+      });
+
+      // Step 4: quantities pass — ~60-120s
+      const quantitiesResult = await step.run("extract-quantities", async () => {
+        return Sentry.startSpan({ name: "inngest.generate-boq/extract-quantities", op: "inngest.step" }, async () => {
+          const usageCollector: GeminiUsageCollector = { entries: [] };
           const truncated = documents.map((d) => ({
             ...d,
             text: d.text.length > 80000 ? d.text.slice(0, 80000) + "\n...[truncated]" : d.text,
           }));
 
-          const boq = await generateBOQ(
-            { documents: truncated },
-            {
-              suggestRates: true,
-              rateContext: rate_context,
-              documentClassification: validation,
-              usageCollector,
-            }
+          const quantitiesRaw = applyDrawingCountHeuristics(
+            structureResult.structure,
+            await extractQuantities(structureResult.bundleText, structureResult.structure, usageCollector),
+            truncated
           );
+
+          const sourceBundleStatus =
+            validation.validation.required_attachments.length > 0 &&
+            supportingDocsSatisfyRequirements(truncated, validation.validation.required_attachments)
+              ? "complete"
+              : validation.validation.source_bundle_status;
+
+          const boq = mergeStructureAndQuantities(
+            structureResult.structure,
+            quantitiesRaw,
+            { ...validation.validation, source_bundle_status: sourceBundleStatus },
+            buildSourceBundle(truncated)
+          );
+
+          if (rate_context?.projectType) {
+            boq.project_type = rate_context.projectType;
+          }
 
           return { boq, usage: usageCollector.entries };
         });
       });
 
+      // Step 5: rate fill pass — ~60-180s depending on item count
+      const result = await step.run("fill-rates", async () => {
+        return Sentry.startSpan({ name: "inngest.generate-boq/fill-rates", op: "inngest.step" }, async () => {
+          const usageCollector: GeminiUsageCollector = { entries: [] };
+          const boq = await fillRatesPass(quantitiesResult.boq, { rateContext: rate_context, usageCollector });
+          return {
+            boq,
+            usage: [
+              ...validation.usage,
+              ...structureResult.usage,
+              ...quantitiesResult.usage,
+              ...usageCollector.entries,
+            ],
+          };
+        });
+      });
+
+      // Step 6: save result + charge credits (unchanged)
       const savedId = await step.run("save-result", async () => {
         return Sentry.startSpan({ name: "inngest.generate-boq/save-result", op: "inngest.step" }, async () => {
           const db = createServiceClient();
@@ -151,6 +233,7 @@ export const generateBOQJob = inngest.createFunction(
         });
       });
 
+      // Step 7: send email (unchanged)
       await step.run("send-email", async () => {
         return Sentry.startSpan({ name: "inngest.generate-boq/send-email", op: "inngest.step" }, async () => {
           if (!user_email) return;
