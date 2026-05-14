@@ -1,5 +1,6 @@
 import rateLibrary from "./rate-library.json";
 import zppaLibrary from "./zppa-rate-library.json";
+import { createServiceClient } from "./supabase/server";
 
 export type RateAnchor = {
   description: string;
@@ -184,4 +185,92 @@ export function findRateAnchors(
   }
 
   return deduped;
+}
+
+/**
+ * Embedding-based rate anchor lookup via pgvector.
+ * Drop-in async replacement for findRateAnchors.
+ * Falls back to Jaccard if the vector search fails.
+ */
+export async function findRateAnchorsVector(
+  description: string,
+  unit: string,
+  limit = 3,
+  province?: string,
+  projectType?: string,
+): Promise<RateAnchor[]> {
+  try {
+    const queryUnit = canonicalUnit(unit);
+
+    // Embed the query description
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) throw new Error("GEMINI_API_KEY not set");
+
+    const embedRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: { parts: [{ text: description }] }, outputDimensionality: 768 }),
+      }
+    );
+    if (!embedRes.ok) throw new Error(`Embedding API ${embedRes.status}`);
+    const embedData = (await embedRes.json()) as { embedding: { values: number[] } };
+    const embedding = embedData.embedding.values;
+
+    // Nearest-neighbour search — fetch extra to allow unit filtering + dedup
+    const supabase = createServiceClient();
+    const { data, error } = await supabase.rpc("match_rate_library", {
+      query_embedding: embedding,
+      match_count: limit * 4,
+      filter_province: province?.toLowerCase() ?? null,
+      filter_unit: null, // unit filtering done client-side for flexibility
+    });
+
+    if (error) throw new Error(error.message);
+
+    // Filter, boost, deduplicate — same logic as Jaccard version
+    const seen = new Set<string>();
+    const results: RateAnchor[] = [];
+
+    for (const row of (data ?? []) as Array<{
+      description: string; unit: string; rate: number;
+      project: string; province: string; project_type: string;
+      source: string; similarity: number;
+    }>) {
+      const rowUnit = canonicalUnit(row.unit);
+      const unitMatch =
+        rowUnit === queryUnit ? 1
+        : rowUnit.includes(queryUnit) || queryUnit.includes(rowUnit) ? 0.6
+        : 0;
+      if (unitMatch === 0) continue;
+
+      const typeBoost =
+        projectType && row.project_type && row.project_type === projectType ? 1.15 : 1.0;
+      const score = row.similarity * unitMatch * typeBoost;
+
+      const dedupeKey = normalize(row.description).slice(0, 40) + "|" + rowUnit;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      results.push({
+        description: row.description,
+        unit: row.unit,
+        rate: Number(row.rate),
+        project: row.project ?? "unknown",
+        province: row.province ?? province ?? "unknown",
+        project_type: row.project_type,
+        score,
+        source: row.source === "zppa" ? "zppa" : "historical",
+      });
+
+      if (results.length >= limit) break;
+    }
+
+    return results;
+  } catch (err) {
+    // Graceful fallback to Jaccard
+    console.warn("[rate-matcher] Vector search failed, falling back to Jaccard:", err);
+    return findRateAnchors(description, unit, limit, 0.15, province, projectType);
+  }
 }

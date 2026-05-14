@@ -44,5 +44,14 @@ next-env.d.ts
 tools/spike/test-*.xlsx
 tools/spike/review-artifacts/
 
+# benchmark outputs and scratch scripts
+benchmark-run*.log
+benchmark-run*.err.log
+tools/_*.cjs
+tools/test-*.cjs
+
+# tender documents (large, potentially sensitive)
+inspo_docs/
+
 .vercel
 .gstack/
