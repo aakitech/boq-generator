@@ -7,12 +7,14 @@ import type { BOQBill, BOQDocument, BOQItem, BOQQualitySummary } from "@/lib/typ
 import { usePostHog } from "posthog-js/react";
 import CreditBadge from "@/components/CreditBadge";
 import { useCredits } from "@/components/CreditsProvider";
+import RateReviewPanel from "@/components/boq/RateReviewPanel";
 
 interface DBBoq {
   id: string;
   title: string;
   data: BOQDocument;
   source_excel_key?: string | null;
+  review_status?: string | null;
 }
 
 interface AssistantMessage {
@@ -64,6 +66,8 @@ export default function BOQPage() {
   const [assistantBusy, setAssistantBusy] = useState(false);
   const [assistantPaneOpen, setAssistantPaneOpen] = useState(true);
   const [assistantDrawerOpen, setAssistantDrawerOpen] = useState(false);
+  const [reviewPanelOpen, setReviewPanelOpen] = useState(true);
+  const [reviewApproved, setReviewApproved] = useState(false);
   const [assistantPreview, setAssistantPreview] = useState<AssistantPreview | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [undoCount, setUndoCount] = useState(0);
@@ -95,6 +99,9 @@ export default function BOQPage() {
       const { boq: row }: { boq: DBBoq } = await res.json();
       setBOQ(row.data);
       setHasSourceExcel(Boolean(row.source_excel_key));
+      const approved = row.review_status === "approved";
+      setReviewApproved(approved);
+      setReviewPanelOpen(!approved);
       setLoading(false);
     }
     load();
@@ -172,6 +179,17 @@ export default function BOQPage() {
       return { ...b, items: b.items.filter((_, ii) => ii !== itemIdx) };
     });
     updateBOQ({ ...boq, bills });
+  }
+
+  async function handleApproveRates(updated: BOQDocument) {
+    setBOQ(updated);
+    await fetch(`/api/boqs/${boqId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ review_status: "approved", data: updated, title: updated.project || "Untitled BOQ" }),
+    });
+    setReviewApproved(true);
+    setReviewPanelOpen(false);
   }
 
   async function handleExport() {
@@ -486,19 +504,30 @@ export default function BOQPage() {
                 </span>
               </span>
             )}
+            {!reviewApproved && (
+              <button
+                onClick={() => setReviewPanelOpen((v) => !v)}
+                className="hidden xl:inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-sm border border-amber-500/30 transition-colors"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                Review rates
+              </button>
+            )}
             {hasSourceExcel ? (
               <button
-                onClick={handleExportPatched}
-                disabled={exportingPatched}
-                className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-60"
+                onClick={reviewApproved ? handleExportPatched : undefined}
+                disabled={exportingPatched || !reviewApproved}
+                title={!reviewApproved ? "Approve rates before downloading" : undefined}
+                className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {exportingPatched ? "Exporting..." : "Download rated Excel"}
               </button>
             ) : (
               <button
-                onClick={handleExport}
-                disabled={exporting}
-                className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-60"
+                onClick={reviewApproved ? handleExport : undefined}
+                disabled={exporting || !reviewApproved}
+                title={!reviewApproved ? "Approve rates before downloading" : undefined}
+                className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {exporting ? "Exporting..." : "Download Excel"}
               </button>
@@ -553,7 +582,7 @@ export default function BOQPage() {
 
         <div
           className={`grid gap-4 ${
-            assistantPaneOpen ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_440px]" : "grid-cols-1"
+            assistantPaneOpen || reviewPanelOpen ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_440px]" : "grid-cols-1"
           }`}
         >
           <div className="space-y-6 min-w-0">
@@ -608,23 +637,32 @@ export default function BOQPage() {
             </div>
           </div>
 
-          {assistantPaneOpen && (
-            <aside className="hidden xl:block">
-              <div className="sticky top-22 pb-4">
-                <AssistantPanel
-                  assistantBusy={assistantBusy}
-                  assistantStatus={assistantStatus}
-                  undoCount={undoCount}
-                  assistantMessages={assistantMessages}
-                  assistantInput={assistantInput}
-                  assistantPreview={assistantPreview}
-                  onUndo={handleUndoLastAIEdit}
-                  onPickPrompt={setAssistantInput}
-                  onDiscardPreview={handleDiscardPreview}
-                  onApplyPreview={handleApplyPreview}
-                  onSubmit={handleAssistantSubmit}
-                  onInputChange={setAssistantInput}
-                />
+          {(reviewPanelOpen || assistantPaneOpen) && (
+            <aside className="hidden xl:flex flex-col gap-4">
+              <div className="sticky top-22 pb-4 flex flex-col gap-4">
+                {reviewPanelOpen && boq && (
+                  <RateReviewPanel
+                    boq={boq}
+                    onSave={(updated) => updateBOQ(updated)}
+                    onApprove={(updated) => handleApproveRates(updated)}
+                  />
+                )}
+                {assistantPaneOpen && (
+                  <AssistantPanel
+                    assistantBusy={assistantBusy}
+                    assistantStatus={assistantStatus}
+                    undoCount={undoCount}
+                    assistantMessages={assistantMessages}
+                    assistantInput={assistantInput}
+                    assistantPreview={assistantPreview}
+                    onUndo={handleUndoLastAIEdit}
+                    onPickPrompt={setAssistantInput}
+                    onDiscardPreview={handleDiscardPreview}
+                    onApplyPreview={handleApplyPreview}
+                    onSubmit={handleAssistantSubmit}
+                    onInputChange={setAssistantInput}
+                  />
+                )}
               </div>
             </aside>
           )}

@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import { computeDeterministicQA, mergeQAScores } from "./boq-qa";
 import { buildDefaultRateReference } from "./rate-reference";
-import { findRateAnchors } from "./rate-matcher";
+import { findRateAnchorsVector } from "./rate-matcher";
 
 type QuantitySource = "explicit" | "derived" | "assumed";
 type SOWValidationResult = DocumentClassification;
@@ -2134,16 +2134,23 @@ function chunkArray<T>(items: T[], size: number): Array<T[]> {
   return chunks;
 }
 
-function buildRateLibraryAnchors(
+async function buildRateLibraryAnchors(
   batch: Array<{ item_key: string; description: string; unit: string }>,
-  province?: string
-): string {
+  province?: string,
+  projectType?: string,
+  marginPct = 0,
+): Promise<string> {
   const lines: string[] = [];
   for (const item of batch) {
-    const anchors = findRateAnchors(item.description, item.unit, 2, 0.25, province);
+    const anchors = await findRateAnchorsVector(item.description, item.unit, 3, province, projectType);
     for (const anchor of anchors) {
+      // ZPPA rates are nett supply costs — apply margin before surfacing to the model
+      const displayRate = anchor.source === "zppa" && marginPct > 0
+        ? +(anchor.rate * (1 + marginPct / 100)).toFixed(2)
+        : anchor.rate;
+      const sourceLabel = anchor.source === "zppa" ? "ZPPA MPI" : anchor.project;
       lines.push(
-        `- "${anchor.description}" (${anchor.unit}): ${anchor.rate} ZMW — from ${anchor.project}, ${anchor.province} [match score: ${anchor.score.toFixed(2)}]`
+        `- "${anchor.description}" (${anchor.unit}): ${displayRate} ZMW — from ${sourceLabel}, ${anchor.province} [similarity: ${anchor.score.toFixed(2)}]`
       );
     }
   }
@@ -2438,7 +2445,7 @@ Existing workbook rates:
 ${JSON.stringify(buildExistingRateReferences(existingRates, batch))}
 
 Historical anchors from accepted Zambian BOQs (use as concrete reference points — prefer these over generic ranges when description and unit match closely):
-${buildRateLibraryAnchors(batch, options?.rateContext?.province)}
+${await buildRateLibraryAnchors(batch, options?.rateContext?.province, options?.rateContext?.projectType, options?.rateContext?.marginPct ?? 0)}
 
 Items to fill:
 ${JSON.stringify(batch)}`,

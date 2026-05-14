@@ -48,11 +48,15 @@ export async function PUT(
   }
 
   const body = await req.json();
-  const { title, data } = body;
+  const { title, data, review_status } = body;
 
   const { error } = await supabase
     .from("boqs")
-    .update({ ...(title && { title }), ...(data && { data }) })
+    .update({
+      ...(title && { title }),
+      ...(data && { data }),
+      ...(review_status && { review_status }),
+    })
     .eq("id", id)
     .eq("user_id", user.id);
 
