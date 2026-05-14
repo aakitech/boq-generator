@@ -207,11 +207,11 @@ export async function findRateAnchorsVector(
     if (!geminiKey) throw new Error("GEMINI_API_KEY not set");
 
     const embedRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${geminiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: { parts: [{ text: description }] } }),
+        body: JSON.stringify({ content: { parts: [{ text: description }] }, outputDimensionality: 768 }),
       }
     );
     if (!embedRes.ok) throw new Error(`Embedding API ${embedRes.status}`);

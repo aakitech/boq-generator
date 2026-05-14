@@ -16,7 +16,7 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const EMBEDDING_MODEL = "text-embedding-004";
+const EMBEDDING_MODEL = "gemini-embedding-001";
 const EMBEDDING_DIMS = 768;
 const BATCH_SIZE = 100;
 
@@ -39,6 +39,7 @@ async function embedBatch(texts) {
     requests: texts.map((text) => ({
       model: `models/${EMBEDDING_MODEL}`,
       content: { parts: [{ text }] },
+      outputDimensionality: EMBEDDING_DIMS,
     })),
   };
   const res = await fetch(url, {

@@ -14,11 +14,11 @@ create table if not exists rate_library (
   embedding    vector(768)
 );
 
--- IVFFlat index for fast cosine similarity search
--- lists = 50 is appropriate for < 10k rows; increase to 100+ once library grows
+-- HNSW index for cosine similarity (required for >2000 dims)
+-- m=16, ef_construction=64 are safe defaults for < 10k rows
 create index if not exists rate_library_embedding_idx
-  on rate_library using ivfflat (embedding vector_cosine_ops)
-  with (lists = 50);
+  on rate_library using hnsw (embedding vector_cosine_ops)
+  with (m = 16, ef_construction = 64);
 
 -- RPC function for nearest-neighbour rate lookup
 create or replace function match_rate_library(
