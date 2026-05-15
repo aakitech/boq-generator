@@ -100,6 +100,8 @@ export const generateBOQJob = inngest.createFunction(
       });
 
       // Step 4: structure pass — ~60-120s
+      // Structure is saved to boqs.processing_context (not returned) to avoid
+      // Inngest Finalization serializing a large object and hitting Vercel's 5m limit.
       const structureResult = await step.run("generate-structure", async () => {
         return Sentry.startSpan({ name: "inngest.generate-boq/generate-structure", op: "inngest.step" }, async () => {
           const usageCollector: GeminiUsageCollector = { entries: [] };
@@ -126,18 +128,17 @@ export const generateBOQJob = inngest.createFunction(
             );
           }
 
-          // Strip source_excerpt from items before returning — these are verbatim document
-          // excerpts that bloat the Inngest step payload and cause 5m+ Finalization timeouts.
-          // extract-quantities re-reads the full documents from the event payload anyway.
-          const structureTrimmed = {
-            ...structure,
-            bills: structure.bills.map((bill) => ({
-              ...bill,
-              items: bill.items.map(({ source_excerpt: _se, ...item }) => item),
-            })),
-          };
+          // Save structure to DB — don't return it from the step.
+          // Returning large objects causes Inngest Finalization to serialize them
+          // through the Vercel function boundary, hitting the 5m timeout.
+          const db = createServiceClient();
+          const { error: saveErr } = await db
+            .from("boqs")
+            .update({ processing_context: { structure } })
+            .eq("id", boq_id);
+          if (saveErr) throw new Error(`Failed to save structure: ${saveErr.code}: ${saveErr.message}`);
 
-          return { structure: structureTrimmed, usage: usageCollector.entries };
+          return { usage: usageCollector.entries };
         });
       });
 
@@ -153,9 +154,22 @@ export const generateBOQJob = inngest.createFunction(
           // Rebuild bundleText locally — avoids passing ~1.5MB text payload through Inngest step serialization
           const bundleText = buildPromptBundle(truncated);
 
+          // Read structure back from DB (was saved by generate-structure to avoid serialization overhead)
+          const db = createServiceClient();
+          const { data: boqRow, error: readErr } = await db
+            .from("boqs")
+            .select("processing_context")
+            .eq("id", boq_id)
+            .single();
+          if (readErr || !boqRow?.processing_context?.structure) {
+            throw new Error("Failed to read structure from processing_context");
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const structure = boqRow.processing_context.structure as any;
+
           const quantitiesRaw = applyDrawingCountHeuristics(
-            structureResult.structure,
-            await extractQuantities(bundleText, structureResult.structure, usageCollector),
+            structure,
+            await extractQuantities(bundleText, structure, usageCollector),
             truncated
           );
 
@@ -166,7 +180,7 @@ export const generateBOQJob = inngest.createFunction(
               : validation.validation.source_bundle_status;
 
           const boq = mergeStructureAndQuantities(
-            structureResult.structure,
+            structure,
             quantitiesRaw,
             { ...validation.validation, source_bundle_status: sourceBundleStatus },
             buildSourceBundle(truncated)
@@ -225,6 +239,7 @@ export const generateBOQJob = inngest.createFunction(
               data: result.boq,
               processing_status: "completed",
               processing_failed_at: null,
+              processing_context: null,
               last_error: null,
               grand_total_zmw: grandTotalZmw,
               ai_input_tokens: usage.inputTokens,
