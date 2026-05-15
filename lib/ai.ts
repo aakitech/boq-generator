@@ -541,29 +541,7 @@ async function generateStructuredContent<T>({
   const openAIModel = useFastModel ? OPENAI_FAST_MODEL : OPENAI_PRIMARY_MODEL;
   const geminiModel = useFastModel ? GEMINI_FAST_FALLBACK_MODEL : GEMINI_FALLBACK_MODEL;
 
-  // Try OpenAI first with retries — it's the primary and is reliable
-  let lastOpenAIError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
-    try {
-      return await generateStructuredContentWithOpenAI<T>({
-        prompt,
-        responseSchema,
-        systemInstruction,
-        temperature,
-        preferredModel: openAIModel,
-        usageCollector,
-        usageOperation,
-      });
-    } catch (err) {
-      lastOpenAIError = err;
-      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-        await sleep(computeRetryDelayMs(attempt, err));
-      }
-    }
-  }
-
-  // Gemini fallback — for primary (non-fast) calls, only use pro; flash truncates large structured responses.
-  // For fast calls, flash is the primary and pro is the fallback.
+  // Try Gemini first — primary provider
   const geminiModels = useFastModel
     ? Array.from(new Set([geminiModel, GEMINI_FALLBACK_MODEL]))
     : [geminiModel];
@@ -614,8 +592,30 @@ async function generateStructuredContent<T>({
     const modelMsg = lastModelError instanceof Error ? lastModelError.message : String(lastModelError);
     geminiErrors.push(`${gModel}: ${modelMsg}`);
   }
+
+  // OpenAI fallback — only if Gemini exhausted
+  let lastOpenAIError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+    try {
+      return await generateStructuredContentWithOpenAI<T>({
+        prompt,
+        responseSchema,
+        systemInstruction,
+        temperature,
+        preferredModel: openAIModel,
+        usageCollector,
+        usageOperation,
+      });
+    } catch (err) {
+      lastOpenAIError = err;
+      if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+        await sleep(computeRetryDelayMs(attempt, err));
+      }
+    }
+  }
+
   const openAIMsg = lastOpenAIError instanceof Error ? lastOpenAIError.message : String(lastOpenAIError);
-  throw new Error(`OpenAI failed (${MAX_ATTEMPTS_PER_MODEL} attempts): ${openAIMsg}. Gemini fallback failed — ${geminiErrors.join(" | ")}`);
+  throw new Error(`Gemini failed — ${geminiErrors.join(" | ")}. OpenAI fallback also failed: ${openAIMsg}`);
 }
 
 function detectRequiredAttachments(text: string): RequiredAttachment[] {
