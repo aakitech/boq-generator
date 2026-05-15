@@ -22,6 +22,7 @@ import { consumeWalletCredits } from "@/lib/credits";
 import { trackEvent } from "@/lib/analytics";
 import { logger } from "@/lib/logger";
 import { sendBoqReadyEmail } from "@/lib/email/boq-ready";
+import { cleanExtractedText } from "@/lib/text-cleaner";
 
 async function markGenerationFailed(boqId: string, error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -63,7 +64,24 @@ export const generateBOQJob = inngest.createFunction(
         });
       });
 
-      // Step 2: validate SOW — fast, ~10-20s
+      // Step 2: persist extracted documents for debugging and retry-without-reupload
+      await step.run("persist-documents", async () => {
+        const db = createServiceClient();
+        const rows = documents.map((doc) => ({
+          boq_id,
+          user_id,
+          filename: doc.name,
+          text: doc.drawing_type ? doc.text : cleanExtractedText(doc.text),
+          pages: doc.pages ?? null,
+          drawing_type: doc.drawing_type ?? null,
+          subject_name: doc.subject_name ?? null,
+          used_vision: !!doc.drawing_type,
+        }));
+        const { error } = await db.from("extracted_documents").insert(rows);
+        if (error) logger.warn("generate-boq: failed to persist extracted documents", { boq_id, error: String(error) });
+      });
+
+      // Step 3: validate SOW — fast, ~10-20s
       const validation = await step.run("validate-sow", async () => {
         return Sentry.startSpan({ name: "inngest.generate-boq/validate-sow", op: "inngest.step" }, async () => {
           const usageCollector: GeminiUsageCollector = { entries: [] };
@@ -81,7 +99,7 @@ export const generateBOQJob = inngest.createFunction(
         });
       });
 
-      // Step 3: structure pass — ~60-120s
+      // Step 4: structure pass — ~60-120s
       const structureResult = await step.run("generate-structure", async () => {
         return Sentry.startSpan({ name: "inngest.generate-boq/generate-structure", op: "inngest.step" }, async () => {
           const usageCollector: GeminiUsageCollector = { entries: [] };
