@@ -108,7 +108,18 @@ export const generateBOQJob = inngest.createFunction(
             );
           }
 
-          return { structure, usage: usageCollector.entries };
+          // Strip source_excerpt from items before returning — these are verbatim document
+          // excerpts that bloat the Inngest step payload and cause 5m+ Finalization timeouts.
+          // extract-quantities re-reads the full documents from the event payload anyway.
+          const structureTrimmed = {
+            ...structure,
+            bills: structure.bills.map((bill) => ({
+              ...bill,
+              items: bill.items.map(({ source_excerpt: _se, ...item }) => item),
+            })),
+          };
+
+          return { structure: structureTrimmed, usage: usageCollector.entries };
         });
       });
 
