@@ -108,7 +108,7 @@ export const generateBOQJob = inngest.createFunction(
             );
           }
 
-          return { structure, bundleText, usage: usageCollector.entries };
+          return { structure, usage: usageCollector.entries };
         });
       });
 
@@ -121,9 +121,12 @@ export const generateBOQJob = inngest.createFunction(
             text: d.text.length > 80000 ? d.text.slice(0, 80000) + "\n...[truncated]" : d.text,
           }));
 
+          // Rebuild bundleText locally — avoids passing ~1.5MB text payload through Inngest step serialization
+          const bundleText = buildPromptBundle(truncated);
+
           const quantitiesRaw = applyDrawingCountHeuristics(
             structureResult.structure,
-            await extractQuantities(structureResult.bundleText, structureResult.structure, usageCollector),
+            await extractQuantities(bundleText, structureResult.structure, usageCollector),
             truncated
           );
 
@@ -207,8 +210,9 @@ export const generateBOQJob = inngest.createFunction(
             .single();
 
           if (error || !saved) {
-            logger.error("generate-boq job: failed to save result", { boq_id, error: String(error) });
-            throw new Error("Failed to save generated BOQ");
+            const detail = error ? `${error.code}: ${error.message}` : "no row returned";
+            logger.error("generate-boq job: failed to save result", { boq_id, detail });
+            throw new Error(`Failed to save generated BOQ — ${detail}`);
           }
 
           await consumeWalletCredits(db, {
