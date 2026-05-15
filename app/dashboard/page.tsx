@@ -16,11 +16,16 @@ interface BOQRow {
   title: string;
   created_at: string;
   updated_at: string;
+  processing_started_at?: string | null;
   payment_status: "preview" | "paid";
   processing_status: "pending" | "processing" | "failed" | "completed";
   last_error?: string | null;
   source_excel_key?: string | null;
   data: { bills?: Array<{ items?: Array<{ amount?: number | null; qty?: number | null; rate?: number | null }> }> };
+}
+
+function isProcessingStatus(status: BOQRow["processing_status"]) {
+  return status === "pending" || status === "processing";
 }
 
 type DashboardFilter = "all" | "processing" | "needs_retry" | "completed";
@@ -36,6 +41,7 @@ export default function DashboardPage() {
   const [opening, setOpening] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>("all");
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
 
@@ -67,8 +73,26 @@ export default function DashboardPage() {
 
       const res = await fetch("/api/boqs");
       if (res.ok) {
-        const { boqs } = await res.json();
-        setBOQs(boqs || []);
+        const { boqs: fetched } = await res.json();
+        const list: BOQRow[] = fetched || [];
+
+        // Auto-expire BOQs stuck in processing for 25+ minutes
+        const STUCK_MS = 25 * 60 * 1000;
+        const stuckIds = list
+          .filter((b) => isProcessingStatus(b.processing_status) && b.processing_started_at &&
+            Date.now() - new Date(b.processing_started_at).getTime() > STUCK_MS)
+          .map((b) => b.id);
+        if (stuckIds.length > 0) {
+          await Promise.all(stuckIds.map((id) =>
+            fetch(`/api/boqs/${id}/expire`, { method: "POST" })
+          ));
+          stuckIds.forEach((id) => {
+            const boq = list.find((b) => b.id === id);
+            if (boq) boq.processing_status = "failed";
+          });
+        }
+
+        setBOQs(list);
       }
       setLoading(false);
     }
@@ -111,7 +135,22 @@ export default function DashboardPage() {
   }
 
   function isProcessing(boq: BOQRow) {
-    return boq.processing_status === "pending" || boq.processing_status === "processing";
+    return isProcessingStatus(boq.processing_status);
+  }
+
+  async function handleRetry(id: string) {
+    setRetrying(id);
+    try {
+      const res = await fetch(`/api/boqs/${id}/retry`, { method: "POST" });
+      if (res.ok) {
+        router.push(`/generating?boq_id=${id}`);
+      } else {
+        const { error } = await res.json();
+        alert(error || "Failed to retry. Please try again.");
+      }
+    } finally {
+      setRetrying(null);
+    }
   }
 
   function statusBadge(boq: BOQRow) {
@@ -277,11 +316,11 @@ export default function DashboardPage() {
                       </button>
                     ) : (
                       <button
-                        onClick={() => { setOpening(boq.id); router.push(`/generating?boq_id=${boq.id}`); }}
-                        disabled={opening === boq.id}
-                        className="px-3 py-1.5 rounded border border-[#262626] hover:bg-[#1a1a1a] text-[#f5f5f5] text-[12px] font-medium transition-colors disabled:opacity-50"
+                        onClick={() => handleRetry(boq.id)}
+                        disabled={retrying === boq.id}
+                        className="px-3 py-1.5 rounded border border-[#f59e0b]/40 hover:bg-[#f59e0b]/10 text-[#f59e0b] text-[12px] font-medium transition-colors disabled:opacity-50"
                       >
-                        Retry
+                        {retrying === boq.id ? "Retrying…" : "Retry"}
                       </button>
                     )}
                     <button
