@@ -207,12 +207,16 @@ export const generateBOQJob = inngest.createFunction(
             })
             .eq("id", boq_id)
             .select("id")
-            .single();
+            .maybeSingle();
 
-          if (error || !saved) {
-            const detail = error ? `${error.code}: ${error.message}` : "no row returned";
+          if (error) {
+            const detail = `${error.code}: ${error.message}`;
             logger.error("generate-boq job: failed to save result", { boq_id, detail });
             throw new Error(`Failed to save generated BOQ — ${detail}`);
+          }
+          if (!saved) {
+            logger.error("generate-boq job: boq row not found for save", { boq_id });
+            throw new Error(`Failed to save generated BOQ — row not found (boq_id: ${boq_id})`);
           }
 
           await consumeWalletCredits(db, {
