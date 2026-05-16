@@ -19,6 +19,8 @@ SET rate_date = '2026-04-01'
 WHERE source = 'zppa';
 
 -- Update match_rate_library RPC to expose rate_date so callers can see it
+-- Must DROP first — PostgreSQL won't allow changing a function's return type in place
+DROP FUNCTION IF EXISTS match_rate_library(vector(768), int, text, text);
 CREATE OR REPLACE FUNCTION match_rate_library(
   query_embedding  vector(768),
   match_count      int,
