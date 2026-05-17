@@ -28,10 +28,10 @@ export default function LandingPage() {
               BOQ Generator · Precision tooling for QSs
             </p>
             <h1 className="font-serif text-[clamp(36px,5.5vw,60px)] leading-[1.08] font-normal tracking-[-0.025em] max-w-[640px] mb-5">
-              Precision tooling for <em className="not-italic italic text-[#737373]">Quantity Surveyors</em> across Southern Africa.
+              Precision tooling for <em className="not-italic italic text-[#737373]">Quantity Surveyors</em> across Africa.
             </h1>
             <p className="text-[15px] text-[#737373] max-w-[440px] leading-relaxed mb-8">
-              Upload your SoW and drawings. Get a structured, priced Bill of Quantities in under a minute — calibrated to your province and project type.
+              Upload your SoW and drawings. Get a structured, priced Bill of Quantities — calibrated to your province, project type, and local rates.
             </p>
             <div className="flex gap-3 items-center">
               <a href="/upload" className="rounded bg-[#f59e0b] hover:bg-[#fbbf24] px-5 py-[10px] text-[13px] font-semibold text-black transition-colors">
@@ -43,11 +43,11 @@ export default function LandingPage() {
             </div>
             <div className="mt-12 pt-10 border-t border-[#262626] flex gap-10">
               <div>
-                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">ZMW</div>
-                <div className="text-[11px] text-[#737373] mt-0.5">Zambian rates built in</div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">5,000+</div>
+                <div className="text-[11px] text-[#737373] mt-0.5">Local rates in library</div>
               </div>
               <div>
-                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">&lt;60s</div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">~10 min</div>
                 <div className="text-[11px] text-[#737373] mt-0.5">Generation time</div>
               </div>
               <div>
@@ -67,7 +67,7 @@ export default function LandingPage() {
           <div className="grid gap-4 md:grid-cols-3">
             {[
               { step: "01", title: "Upload your documents", desc: "SoW, drawings, schedules — drop them all in. Up to 6 files, 50 MB each." },
-              { step: "02", title: "Generate BOQ", desc: "AI builds a structured, priced bill of quantities. Runs in the background — no waiting." },
+              { step: "02", title: "Generate BOQ", desc: "AI builds a structured, priced bill of quantities. Runs in the background — typically ready in 10 minutes." },
               { step: "03", title: "Review & export", desc: "Edit line items in-browser, chat with the assistant, then download a rated Excel." },
             ].map((item) => (
               <div key={item.step} className="rounded-[8px] border border-[#262626] bg-[#111] p-6">

@@ -291,7 +291,6 @@ async function main() {
       province: r.province,
       project_type: r.project_type,
       source: r.source,
-      rate_date: r.rate_date ?? null,
       embedding: embeddings[idx],
     }));
 
@@ -312,6 +311,14 @@ async function main() {
   console.log(`\n\nDone: ${inserted} inserted, ${failed} failed`);
   console.log(`\nVerify with SQL:`);
   console.log(`  SELECT COUNT(*), project FROM rate_library WHERE province = '${provinceArg}' GROUP BY project ORDER BY COUNT(*) DESC;`);
+
+  if (rateDateArg && inserted > 0) {
+    const projects = [...new Set(deduped.map((r) => r.project))];
+    console.log(`\nBackfill rate_date (run in Supabase SQL editor):`);
+    console.log(`  UPDATE rate_library SET rate_date = '${rateDateArg}'`);
+    console.log(`  WHERE province = '${provinceArg}' AND rate_date IS NULL`);
+    console.log(`  AND project IN (${projects.map((p) => `'${p.replace(/'/g, "''")}'`).join(", ")});`);
+  }
 }
 
 main().catch((err) => {

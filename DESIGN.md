@@ -1,8 +1,8 @@
 # Design System — BOQ Generator
 
 ## Product Context
-- **What this is:** AI-powered Bill of Quantities generator. QSs upload construction documents and get a structured, priced BOQ in under a minute.
-- **Who it's for:** Quantity Surveyors and QS firms across Southern Africa (Zambia primary, expanding to Zimbabwe, Malawi, etc.)
+- **What this is:** AI-powered Bill of Quantities generator. QSs upload construction documents and get a structured, priced BOQ in ~10 minutes.
+- **Who it's for:** Quantity Surveyors and QS firms across Africa (Zambia primary, expanding continent-wide)
 - **Space/industry:** Construction procurement and cost management software
 - **Project type:** Web app — data-dense, document-centric, professional tool
 
