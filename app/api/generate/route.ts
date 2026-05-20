@@ -5,6 +5,7 @@ import { ensureProfileExists } from "@/lib/supabase/ensure-profile";
 import { logger } from "@/lib/logger";
 import { trackEvent } from "@/lib/analytics";
 import { InngestEnqueueError, sendInngestEvent } from "@/lib/inngest";
+import { sendAdminBOQAlert } from "@/lib/email/admin-alerts";
 import type { RateContext } from "@/lib/ai";
 import { getRemainingCredits } from "@/lib/credits";
 import { creditsForGeneratedBoqWithDocs } from "@/lib/gemini-pricing";
@@ -115,6 +116,16 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ error: "Failed to start generation. Please try again." }, { status: 500 });
     }
+
+    sendAdminBOQAlert({
+      email: user.email ?? "unknown",
+      userId: user.id,
+      boqId: saved.id,
+      title: pendingTitle,
+      docCount: allDocuments.length,
+    }).catch((err) =>
+      logger.warn("Admin BOQ alert failed", { error: String(err) })
+    );
 
     if (shouldRunJobsInline) {
       void processGenerateBOQJob({
