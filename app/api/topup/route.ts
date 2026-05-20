@@ -10,6 +10,8 @@ const TOPUP_OPTIONS: Record<number, number> = {
   20: 500,
   50: 1250,
   100: 2500,
+  500: 14000,
+  1000: 30000,
 };
 
 function buildWhatsAppUrl(phone: string, message: string): string {
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const creditsToGrant = TOPUP_OPTIONS[amount_usd];
     if (!creditsToGrant) {
-      return NextResponse.json({ error: "Invalid amount. Choose $20, $50, or $100." }, { status: 400 });
+      return NextResponse.json({ error: "Invalid amount. Choose $20, $50, $100, $500, or $1,000." }, { status: 400 });
     }
 
     const supabase = await createClient();

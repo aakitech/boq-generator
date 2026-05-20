@@ -38,6 +38,7 @@ export default function TermsPage() {
           <ul className="list-disc pl-5 space-y-1 text-sm">
             <li>The Service operates on a credit wallet. New accounts receive starter credits on sign-up. Additional credits can be purchased via MoMo, Airtel Money, or bank transfer.</li>
             <li>Credits are deducted when AI work is completed (BOQ generation, rate-filling, or AI assistant proposals).</li>
+            <li><strong className="text-white">Credit cost per job:</strong> Rate Existing BOQ costs 500 credits ($20). Generate New BOQ costs 500 credits for up to 5 documents, plus 150 credits per additional document — a 20-document job costs 2,500 credits ($100). Credits are deducted on job completion, not on upload.</li>
             <li>Credit top-ups are processed manually. Once payment is confirmed by our team, credits are added to your wallet within 1 business day.</li>
             <li>Credit balances are non-transferable and non-refundable except in cases of service failure (see Refund Policy below).</li>
           </ul>

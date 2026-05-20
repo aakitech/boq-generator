@@ -8,6 +8,7 @@ import TopUpModal from "@/components/TopUpModal";
 import { useCredits } from "@/components/CreditsProvider";
 import { DocumentList, type UploadedDoc, type ProcessedDoc } from "./DocumentList";
 import { RateAssumptions, DEFAULT_CONTEXT, type RateContext } from "./RateAssumptions";
+import { creditsForGeneratedBoqWithDocs } from "@/lib/gemini-pricing";
 
 type Stage = "idle" | "extracting" | "generating" | "error";
 
@@ -24,7 +25,8 @@ export default function GenerateBOQTab() {
 
   const anyProcessing = uploadedDocs.some((d) => d.processing);
   const readyDocs = uploadedDocs.filter((d) => d.processedDoc);
-  const hasEnoughCredits = remainingCredits >= 500;
+  const requiredCredits = creditsForGeneratedBoqWithDocs(readyDocs.length);
+  const hasEnoughCredits = remainingCredits >= requiredCredits;
   const canGenerate = readyDocs.length > 0 && !anyProcessing && stage !== "generating" && hasEnoughCredits;
 
   const bundleDocs = useMemo((): ProcessedDoc[] => {
@@ -244,7 +246,7 @@ export default function GenerateBOQTab() {
 
       {uploadedDocs.length > 0 && !hasEnoughCredits && (
         <div className="px-4 py-3 rounded border border-[#f59e0b]/20 bg-[#f59e0b]/5 text-xs text-[#f59e0b]">
-          You need at least 500 credits to generate a BOQ.{" "}
+          You need at least {requiredCredits.toLocaleString()} credits for {readyDocs.length} document{readyDocs.length !== 1 ? "s" : ""}.{" "}
           <button className="underline" onClick={() => setShowTopUp(true)}>Top up credits</button>
         </div>
       )}

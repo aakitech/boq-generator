@@ -97,8 +97,17 @@ export function creditsFromUsdTarget(targetUsd: number): number {
   return Math.max(1, Math.ceil(targetUsd / USD_PER_CREDIT));
 }
 
+export const GENERATE_BOQ_PER_DOC_CREDITS = 150;
+export const GENERATE_BOQ_BASE_DOC_THRESHOLD = 5;
+
 export function creditsForGeneratedBoq(): number {
   return 500; // $20 floor
+}
+
+export function creditsForGeneratedBoqWithDocs(docCount: number): number {
+  const base = 500;
+  const extraDocs = Math.max(0, docCount - GENERATE_BOQ_BASE_DOC_THRESHOLD);
+  return Math.min(base + extraDocs * GENERATE_BOQ_PER_DOC_CREDITS, MAX_GENERATION_CREDITS);
 }
 
 export function creditsForAssistantEdit(): number {
