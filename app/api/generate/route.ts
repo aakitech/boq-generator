@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     // Fast credit gate — prevent queueing jobs for users with insufficient credits
     const remainingCredits = await getRemainingCredits(dbClient, user.id);
-    const requiredCredits = creditsForGeneratedBoqWithDocs(documents.length);
+    const requiredCredits = creditsForGeneratedBoqWithDocs(allDocuments.length);
     if (remainingCredits < requiredCredits) {
       return NextResponse.json(
         { error: "insufficient_credits", remainingCredits, requiredCredits },
