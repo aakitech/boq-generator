@@ -21,6 +21,7 @@ create index if not exists rate_library_embedding_idx
   with (m = 16, ef_construction = 64);
 
 -- RPC function for nearest-neighbour rate lookup
+drop function if exists match_rate_library(vector(768), int, text, text);
 create or replace function match_rate_library(
   query_embedding  vector(768),
   match_count      int,
