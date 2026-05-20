@@ -197,6 +197,11 @@ export default function RateReviewPanel({ boq, onSave, onApprove }: Props) {
             {buckets.skipped.length} item{buckets.skipped.length !== 1 ? "s" : ""} intentionally blank (contractor-fill or specialist). You may enter rates but they are not required.
           </p>
         )}
+        {canApprove && (
+          <p className="text-[11px] text-[#525252] mb-2 leading-snug">
+            By approving, you confirm that you have reviewed all rates above and accept professional responsibility for this BOQ before use in any tender or contract.
+          </p>
+        )}
         <button
           onClick={handleApprove}
           disabled={!canApprove || saving}
@@ -205,7 +210,7 @@ export default function RateReviewPanel({ boq, onSave, onApprove }: Props) {
               ? "bg-[#f59e0b] text-black hover:bg-[#fbbf24] cursor-pointer"
               : "bg-[#1a1a1a] text-[#404040] cursor-not-allowed border border-[#262626]"}`}
         >
-          {saving ? "Saving…" : canApprove ? "Approve & enable download" : "Approve & enable download"}
+          {saving ? "Saving…" : canApprove ? "I confirm — approve & download" : "Approve & enable download"}
         </button>
       </div>
     </div>

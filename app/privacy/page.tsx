@@ -18,7 +18,7 @@ export default function PrivacyPage() {
       <main className="flex-1 max-w-3xl mx-auto px-4 py-16 space-y-10 text-gray-300">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Privacy Policy</h1>
-          <p className="text-sm text-gray-500">Last updated: 18 March 2026</p>
+          <p className="text-sm text-gray-500">Last updated: 20 May 2026</p>
         </div>
 
         <p className="text-sm leading-relaxed">
@@ -26,14 +26,16 @@ export default function PrivacyPage() {
         </p>
 
         <Section title="1. Who we are">
-          <p>BOQ Generator is an AI-powered tool that generates Bills of Quantities from Scope of Work documents for construction professionals, primarily in Zambia and Southern Africa. For data protection enquiries, contact us at the address listed on the <a href="/contact" className="text-amber-400 hover:underline">Contact page</a>.</p>
+          <p>BOQ Generator is an AI-powered productivity tool for Quantity Surveyors, primarily in Zambia and Southern Africa. It generates Bills of Quantities from Scope of Work documents and drawings, and fills rates into existing BOQ Excel files. For data protection enquiries, contact us at the address listed on the <a href="/contact" className="text-amber-400 hover:underline">Contact page</a>.</p>
         </Section>
 
         <Section title="2. What personal information we collect">
           <ul className="list-disc pl-5 space-y-1 text-sm">
             <li><strong className="text-white">Account information:</strong> Your name and email address, provided via Google Sign-In (OAuth).</li>
             <li><strong className="text-white">Payment information:</strong> Payment is processed by Stripe. We do not store your card details. We store your Stripe session ID and payment status to fulfil your order.</li>
-            <li><strong className="text-white">Document content:</strong> The text extracted from your uploaded Scope of Work document is used solely to generate your BOQ. The raw file is never stored on our servers — only the extracted text and the resulting BOQ JSON are retained.</li>
+            <li><strong className="text-white">Scope of Work and specification documents:</strong> Text is extracted from your uploaded documents (PDFs, Word files) and sent to the AI for BOQ generation. Raw files are never stored on our servers — only the extracted text and the resulting BOQ JSON are retained.</li>
+            <li><strong className="text-white">Drawing files (Generate New BOQ flow):</strong> PDF and image drawing files are temporarily uploaded to the Gemini Files API for vision-based quantity extraction. They are deleted from Gemini&apos;s storage after processing. Extracted data (dimensions, quantities) is retained as part of your BOQ.</li>
+            <li><strong className="text-white">Uploaded BOQ Excel files (Rate Existing BOQ flow):</strong> Your Excel file is read server-side to extract item descriptions, quantities, and units. The raw file is not stored — only the extracted items and the rated BOQ JSON are retained.</li>
             <li><strong className="text-white">Generated BOQs:</strong> Your BOQ data is saved to your account so you can access and edit it later.</li>
             <li><strong className="text-white">Usage data:</strong> Standard server logs (IP address, timestamps, request paths) for security and debugging. These are not sold or shared.</li>
           </ul>
@@ -63,7 +65,8 @@ export default function PrivacyPage() {
             <li><strong className="text-white">Supabase:</strong> Database and authentication hosting. Your account and BOQ data are stored in Supabase infrastructure.</li>
             <li><strong className="text-white">Stripe:</strong> Payment processing. Stripe&apos;s privacy policy applies to payment data.</li>
             <li><strong className="text-white">Google (OAuth):</strong> Used for sign-in only. We receive your name and email from Google with your consent.</li>
-            <li><strong className="text-white">Google Gemini AI:</strong> The text of your uploaded document is sent to the Gemini API to generate the BOQ. This data is subject to Google&apos;s API data handling terms and is not used to train AI models under the standard API agreement.</li>
+            <li><strong className="text-white">Google Gemini AI:</strong> Document text and drawing files are sent to the Gemini API for BOQ generation and quantity extraction. This data is subject to Google&apos;s API data handling terms and is not used to train AI models under the standard API agreement.</li>
+            <li><strong className="text-white">Inngest:</strong> Used for background job processing of BOQ generation and rate-filling. Your document content passes through Inngest&apos;s queue infrastructure during processing and is subject to Inngest&apos;s data handling terms.</li>
             <li><strong className="text-white">Vercel:</strong> Hosting provider for this application.</li>
           </ul>
         </Section>

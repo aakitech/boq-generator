@@ -18,7 +18,7 @@ export default function TermsPage() {
       <main className="flex-1 max-w-3xl mx-auto px-4 py-16 space-y-10 text-gray-300">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Terms of Service</h1>
-          <p className="text-sm text-gray-500">Last updated: 18 March 2026</p>
+          <p className="text-sm text-gray-500">Last updated: 20 May 2026</p>
         </div>
 
         <p className="text-sm leading-relaxed">
@@ -26,8 +26,16 @@ export default function TermsPage() {
         </p>
 
         <Section title="1. The Service">
-          <p>BOQ Generator is an AI-powered tool that generates Bills of Quantities (BOQs) from uploaded Scope of Work documents. The Service uses AI language models to extract and structure content from your documents.</p>
-          <p className="mt-2 font-medium text-yellow-300">Important: All AI-generated BOQs are provided as a starting point only. You are responsible for reviewing, verifying, and validating all quantities, descriptions, units, and rates before use in any tender, contract, or construction project. BOQ Generator and its operators accept no liability for errors, omissions, or inaccuracies in generated outputs.</p>
+          <p>BOQ Generator is an AI-powered tool for Quantity Surveyors. It provides two distinct workflows:</p>
+          <ul className="list-disc pl-5 space-y-2 text-sm mt-2">
+            <li>
+              <strong className="text-white">Generate New BOQ:</strong> Upload up to 20 documents — Scope of Work, drawings, specifications, and schedules. The AI reads all uploaded files, extracts project scope, derives a bill structure, performs quantity take-off from drawings, and produces a full BOQ including items, descriptions, units, quantities, and rates. Quantities are AI-extracted from your documents and are not verified measurements.
+            </li>
+            <li>
+              <strong className="text-white">Rate Existing BOQ:</strong> Upload an existing Excel BOQ. The AI preserves your original structure exactly — descriptions, units, and quantities are untouched — and fills in rates from a library of historical Zambian project data. Where the library has no close match, the AI provides an estimate flagged for your review. Some items (contractor-fill, specialist supply) are deliberately left blank and flagged as intentionally unrated.
+            </li>
+          </ul>
+          <p className="mt-3 font-medium text-yellow-300">Important: All AI outputs are provided as a starting point only. In the Generate flow, you are responsible for verifying quantities, bill structure, and rates against your source documents. In the Rate Existing flow, you are responsible for reviewing all AI-estimated rates before use. BOQ Generator and its operators accept no liability for errors, omissions, or inaccuracies in any output. All BOQs must be reviewed and signed off by a qualified Quantity Surveyor before use in any tender, contract, or construction project.</p>
         </Section>
 
         <Section title="2. Eligibility">
@@ -48,6 +56,7 @@ export default function TermsPage() {
           <ul className="list-disc pl-5 space-y-1 text-sm mt-2">
             <li><strong className="text-white">Technical failure:</strong> If the Service fails to generate a BOQ due to a technical error on our side and you are unable to download any output, you are entitled to a credit refund or re-generation. Contact us within 7 days.</li>
             <li><strong className="text-white">Poor-quality output:</strong> If the generated BOQ is clearly unusable due to a failure in our AI system (e.g., entirely blank, garbled output), contact us and we will review your case. We may offer a re-generation or credit refund at our discretion.</li>
+            <li><strong className="text-white">Rate Existing BOQ — system error:</strong> If rate-filling produces clearly incorrect output due to a system error (e.g., all rates written as zero, wrong units matched throughout), contact us. Disagreement with individual AI-estimated rates is not a refund case — the Rate Review step in the product exists precisely so you can correct estimates before approving.</li>
             <li><strong className="text-white">Unsuitable document:</strong> If you uploaded a document that is not a Scope of Work and received a poor-quality BOQ as a result, refunds are not guaranteed. We provide a document validation step before processing to help prevent this.</li>
             <li><strong className="text-white">Change of mind:</strong> Credits are not refunded after BOQ generation has been initiated, as the AI processing cost has been incurred.</li>
           </ul>
@@ -69,6 +78,7 @@ export default function TermsPage() {
 
         <Section title="7. Disclaimer of warranties">
           <p>The Service is provided &ldquo;as is&rdquo; without warranties of any kind, express or implied. We do not warrant that the generated BOQs will be accurate, complete, or fit for any particular purpose. AI-generated content can contain errors and must be reviewed by a qualified professional before use.</p>
+          <p className="mt-2">Specifically: quantities produced in the Generate New BOQ flow are AI-extracted from your uploaded documents and may contain omissions, misreadings, or errors. Rates are sourced from a library of historical Zambian project data and AI heuristics — they may not reflect current market conditions, regional price variations, or the specific requirements of your project. All quantities and rates must be independently verified by a qualified Quantity Surveyor before the output is used in any tender or contract.</p>
         </Section>
 
         <Section title="8. Limitation of liability">
