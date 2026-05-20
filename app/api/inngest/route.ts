@@ -9,4 +9,5 @@ export const maxDuration = 300;
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [generateBOQJob, rateBOQJob],
+  serveOrigin: process.env.INNGEST_BASE_URL,
 });
