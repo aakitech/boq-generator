@@ -665,8 +665,15 @@ export async function patchExcelWithRates(
 
     if (amountCol !== -1) {
       const amountCell = row.getCell(amountCol + 1);
-      if (!excelJsCellHasFormula(amountCell)) {
-        const amount = computeAmount(item);
+      const amount = computeAmount(item);
+      if (excelJsCellHasFormula(amountCell)) {
+        // Update the cached result so the value is correct before Excel recalculates
+        if (amount !== null) {
+          const fv = amountCell.value as { formula: string; result?: number | string };
+          amountCell.value = { formula: fv.formula, result: amount };
+          amountCell.numFmt = amountCell.numFmt || "#,##0.00";
+        }
+      } else {
         if (amount !== null) {
           amountCell.value = amount;
           amountCell.numFmt = amountCell.numFmt || "#,##0.00";
