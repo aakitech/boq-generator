@@ -43,8 +43,8 @@ export default function LandingPage() {
             </div>
             <div className="mt-12 pt-10 border-t border-[#262626] flex gap-10">
               <div>
-                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">5,000+</div>
-                <div className="text-[11px] text-[#737373] mt-0.5">Local rates in library</div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">Zambian</div>
+                <div className="text-[11px] text-[#737373] mt-0.5">Rates grounded in real project data</div>
               </div>
               <div>
                 <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">~10 min</div>
