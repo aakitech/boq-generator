@@ -43,8 +43,8 @@ export default function LandingPage() {
             </div>
             <div className="mt-12 pt-10 border-t border-[#262626] flex gap-10">
               <div>
-                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">5,000+</div>
-                <div className="text-[11px] text-[#737373] mt-0.5">Local rates in library</div>
+                <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">Zambian</div>
+                <div className="text-[11px] text-[#737373] mt-0.5">Rates grounded in real project data</div>
               </div>
               <div>
                 <div className="font-mono text-[20px] font-medium tracking-[-0.03em] text-[#f5f5f5]">~10 min</div>
@@ -126,21 +126,63 @@ export default function LandingPage() {
         {/* Pricing */}
         <section className="border-t border-[#1c1c1c] mx-auto max-w-[960px] px-6 py-12 pb-24">
           <h2 className="font-serif text-[28px] font-normal text-[#f5f5f5] mb-2">Pricing</h2>
-          <p className="text-[#737373] text-[13px] mb-10">Start free. Top up credits when you need more.</p>
-          <div className="grid gap-4 sm:grid-cols-3 max-w-xl">
+          <p className="text-[#737373] text-[13px] mb-8">Start free. Top up credits when you need more.</p>
+
+          {/* Per-job cost explainer */}
+          <div className="mb-8 space-y-1.5">
+            <div className="flex items-baseline gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#404040] w-36 flex-shrink-0">Rate Existing BOQ</span>
+              <span className="font-mono text-[12px] text-[#737373]">500 credits</span>
+              <span className="text-[12px] text-[#404040]">·</span>
+              <span className="font-mono text-[12px] text-[#404040]">$20 flat</span>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#404040] w-36 flex-shrink-0">Generate New BOQ</span>
+              <span className="font-mono text-[12px] text-[#737373]">from 500 credits</span>
+              <span className="text-[12px] text-[#404040]">·</span>
+              <span className="font-mono text-[12px] text-[#404040]">+150 credits per doc above 5</span>
+            </div>
+          </div>
+
+          {/* Entry packs — 3-column grid */}
+          <div className="grid gap-3 sm:grid-cols-3 max-w-xl mb-6">
             {[
-              { label: "$20", credits: "500 credits", note: "~1 BOQ" },
-              { label: "$50", credits: "1,250 credits", note: "~2–3 BOQs" },
-              { label: "$100", credits: "2,500 credits", note: "~5+ BOQs" },
+              { label: "$20",  credits: "500 credits",   note: "1 rated BOQ or 1 generate job (up to 5 docs)" },
+              { label: "$50",  credits: "1,250 credits", note: "2–3 rated BOQs or 1 generate job with drawings" },
+              { label: "$100", credits: "2,500 credits", note: "5+ rated BOQs or large generate jobs" },
             ].map((tier) => (
               <div key={tier.label} className="rounded-[8px] border border-[#262626] bg-[#111] p-5">
                 <p className="font-mono text-[24px] font-medium text-[#f5f5f5] mb-1">{tier.label}</p>
-                <p className="text-[12px] text-[#f59e0b] font-mono mb-1">{tier.credits}</p>
-                <p className="text-[12px] text-[#737373]">{tier.note}</p>
+                <p className="text-[12px] text-[#f59e0b] font-mono mb-2">{tier.credits}</p>
+                <p className="text-[11px] text-[#525252] leading-snug">{tier.note}</p>
               </div>
             ))}
           </div>
-          <p className="text-[12px] text-[#404040] mt-4">Every new account gets 1,000 free credits — enough for ~2 BOQs.</p>
+
+          {/* Firm & Enterprise separator */}
+          <div className="flex items-center gap-3 mb-4 max-w-xl">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#404040]">Firm &amp; Enterprise</span>
+            <div className="flex-1 h-px bg-[#262626]" />
+          </div>
+
+          {/* Firm & Enterprise packs — 2-column */}
+          <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
+            {[
+              { label: "$500",   credits: "14,000 credits", note: "Firm pack — 28 rated BOQs or 5+ generate jobs",   badge: "10% off" },
+              { label: "$1,000", credits: "30,000 credits", note: "Enterprise — 60 rated BOQs or 12+ generate jobs", badge: "17% off" },
+            ].map((tier) => (
+              <div key={tier.label} className="relative rounded-[8px] border border-[#262626] bg-[#1a1a1a] p-5">
+                <span className="absolute top-3 right-3 font-mono text-[10px] uppercase tracking-wide text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">
+                  {tier.badge}
+                </span>
+                <p className="font-mono text-[24px] font-medium text-[#f5f5f5] mb-1">{tier.label}</p>
+                <p className="text-[12px] text-[#f59e0b] font-mono mb-2">{tier.credits}</p>
+                <p className="text-[11px] text-[#525252] leading-snug">{tier.note}</p>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[12px] text-[#404040] mt-5">Every new account gets 1,000 free credits — enough for 2 rated BOQs or 1 generate job with drawings.</p>
         </section>
 
         {/* Updates */}

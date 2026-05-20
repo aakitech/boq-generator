@@ -7,6 +7,7 @@ import { trackEvent } from "@/lib/analytics";
 import { InngestEnqueueError, sendInngestEvent } from "@/lib/inngest";
 import type { RateContext } from "@/lib/ai";
 import { getRemainingCredits } from "@/lib/credits";
+import { creditsForGeneratedBoqWithDocs } from "@/lib/gemini-pricing";
 import { processGenerateBOQJob, shouldRunJobsInline } from "@/lib/boq-jobs";
 
 export const runtime = "nodejs";
@@ -84,11 +85,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fast credit gate — prevent queueing jobs for users with no credits
+    // Fast credit gate — prevent queueing jobs for users with insufficient credits
     const remainingCredits = await getRemainingCredits(dbClient, user.id);
-    if (remainingCredits < 500) {
+    const requiredCredits = creditsForGeneratedBoqWithDocs(allDocuments.length);
+    if (remainingCredits < requiredCredits) {
       return NextResponse.json(
-        { error: "insufficient_credits", remainingCredits },
+        { error: "insufficient_credits", remainingCredits, requiredCredits },
         { status: 402 }
       );
     }

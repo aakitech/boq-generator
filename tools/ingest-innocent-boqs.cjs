@@ -32,9 +32,17 @@ const rateDateArg =
   process.argv.find((a) => a.startsWith("--rate-date="))?.slice(12) ??
   process.argv[process.argv.indexOf("--rate-date") + 1] ??
   null;
+// Optional: --project-type <type> — e.g. residential, education, water-sanitation, industrial, civil, health, commercial
+// Valid values: residential | education | water-sanitation | industrial | civil | health | commercial | government
+const projectTypeArg = (
+  process.argv.find((a) => a.startsWith("--project-type="))?.slice(15) ??
+  process.argv[process.argv.indexOf("--project-type") + 1] ??
+  "commercial"
+).toLowerCase();
 
 if (!folderArg) {
-  console.error("Usage: node tools/ingest-innocent-boqs.cjs --folder <path> [--province <province>] [--rate-date YYYY-MM-DD]");
+  console.error("Usage: node tools/ingest-innocent-boqs.cjs --folder <path> [--province <province>] [--project-type <type>] [--rate-date YYYY-MM-DD]");
+  console.error("  --project-type: residential | education | water-sanitation | industrial | civil | health | commercial | government");
   process.exit(1);
 }
 
@@ -207,8 +215,9 @@ async function embedBatch(texts) {
 
 async function main() {
   console.log("=== Ingest Innocent's BOQ Files ===");
-  console.log(`Folder:   ${folderArg}`);
-  console.log(`Province: ${provinceArg}`);
+  console.log(`Folder:       ${folderArg}`);
+  console.log(`Province:     ${provinceArg}`);
+  console.log(`Project type: ${projectTypeArg}`);
   console.log(`Supabase: ${supabaseUrl}`);
 
   // Load all Excel files from folder
@@ -240,7 +249,7 @@ async function main() {
         rate: item.rate,
         project,
         province: provinceArg,
-        project_type: "commercial",
+        project_type: projectTypeArg,
         source: "historical",
         rate_date: rateDateArg ?? null,
       });

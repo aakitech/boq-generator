@@ -5,9 +5,11 @@ import { createPortal } from "react-dom";
 import { useCredits } from "@/components/CreditsProvider";
 
 const TOPUP_OPTIONS = [
-  { usd: 20, credits: 500, label: "$20", note: "~1 BOQ" },
-  { usd: 50, credits: 1250, label: "$50", note: "~2–3 BOQs" },
-  { usd: 100, credits: 2500, label: "$100", note: "~5+ BOQs" },
+  { usd: 20,   credits: 500,   label: "$20",    note: "1 rated BOQ or 1 generate job (up to 5 docs)",    badge: null },
+  { usd: 50,   credits: 1250,  label: "$50",    note: "2–3 rated BOQs or 1 generate job with drawings",  badge: null },
+  { usd: 100,  credits: 2500,  label: "$100",   note: "5+ rated BOQs or large generate jobs",            badge: null },
+  { usd: 500,  credits: 14000, label: "$500",   note: "Firm pack — 28 rated BOQs or 5+ generate jobs",   badge: "10% off" },
+  { usd: 1000, credits: 30000, label: "$1,000", note: "Enterprise — 60 rated BOQs or 12+ generate jobs", badge: "17% off" },
 ];
 
 type TopUpState = "pick" | "instructions";
@@ -86,7 +88,7 @@ function TopUpModalContent({ onClose }: { onClose: () => void }) {
       <div className="absolute inset-0" onClick={onClose} />
 
       <div
-        className="relative w-full max-w-[440px] rounded-[10px] overflow-hidden"
+        className="relative w-full max-w-[480px] rounded-[10px] overflow-hidden"
         style={{ background: "#111", border: "1px solid #262626" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -112,8 +114,35 @@ function TopUpModalContent({ onClose }: { onClose: () => void }) {
                 Choose an amount. Credits are added to your account once payment is confirmed.
               </p>
 
+              {/* Entry tiers — compact 3-column grid */}
+              <div className="grid grid-cols-3 gap-2">
+                {TOPUP_OPTIONS.filter((o) => !o.badge).map((opt) => (
+                  <button
+                    key={opt.usd}
+                    type="button"
+                    onClick={() => setSelected(opt.usd)}
+                    className="flex flex-col px-3 py-3 rounded text-left transition-colors"
+                    style={{
+                      border: selected === opt.usd ? "1px solid #f59e0b" : "1px solid #262626",
+                      background: selected === opt.usd ? "rgba(245,158,11,0.08)" : "#1a1a1a",
+                    }}
+                  >
+                    <span className="font-mono text-[20px] font-medium text-[#f5f5f5] leading-none mb-1">{opt.label}</span>
+                    <span className="font-mono text-[11px] text-[#f59e0b] mb-1">{opt.credits.toLocaleString()} cr</span>
+                    <span className="text-[10px] text-[#525252] leading-snug">{opt.note}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Firm & Enterprise separator */}
+              <div className="flex items-center gap-3 pt-1">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#404040]">Firm &amp; Enterprise</span>
+                <div className="flex-1 h-px bg-[#262626]" />
+              </div>
+
+              {/* Firm/Enterprise tiers — full-width rows */}
               <div className="space-y-2">
-                {TOPUP_OPTIONS.map((opt) => (
+                {TOPUP_OPTIONS.filter((o) => o.badge).map((opt) => (
                   <button
                     key={opt.usd}
                     type="button"
@@ -124,11 +153,16 @@ function TopUpModalContent({ onClose }: { onClose: () => void }) {
                       background: selected === opt.usd ? "rgba(245,158,11,0.08)" : "#1a1a1a",
                     }}
                   >
-                    <div>
-                      <span className="font-mono text-[18px] font-medium text-[#f5f5f5]">{opt.label}</span>
-                      <span className="ml-3 text-[12px] text-[#737373]">{opt.note}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="font-mono text-[18px] font-medium text-[#f5f5f5] flex-shrink-0">{opt.label}</span>
+                      <div className="min-w-0">
+                        <span className="font-mono text-[11px] text-[#f59e0b]">{opt.credits.toLocaleString()} credits</span>
+                        <span className="block text-[10px] text-[#525252] leading-snug truncate">{opt.note}</span>
+                      </div>
                     </div>
-                    <span className="font-mono text-[13px] text-[#737373]">{opt.credits.toLocaleString()} credits</span>
+                    <span className="flex-shrink-0 ml-3 font-mono text-[10px] uppercase tracking-wide text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">
+                      {opt.badge}
+                    </span>
                   </button>
                 ))}
               </div>

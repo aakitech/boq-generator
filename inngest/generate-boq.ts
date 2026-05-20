@@ -17,7 +17,7 @@ import {
 } from "@/lib/ai";
 import type { GenerationInputDocument, GeminiUsageCollector } from "@/lib/ai";
 import type { RateContext } from "@/lib/ai";
-import { creditsForGeneratedBoq, summarizeAIUsage, MAX_GENERATION_CREDITS } from "@/lib/gemini-pricing";
+import { creditsForGeneratedBoq, creditsForGeneratedBoqWithDocs, summarizeAIUsage, MAX_GENERATION_CREDITS } from "@/lib/gemini-pricing";
 import { consumeWalletCredits } from "@/lib/credits";
 import { trackEvent } from "@/lib/analytics";
 import { logger } from "@/lib/logger";
@@ -217,8 +217,9 @@ export const generateBOQJob = inngest.createFunction(
           const db = createServiceClient();
           const usage = summarizeAIUsage(result.usage);
           const title = result.boq.project || "Untitled BOQ";
+          const creditsFloor = creditsForGeneratedBoqWithDocs(documents.length);
           const generationCredits = Math.max(
-            creditsForGeneratedBoq(),
+            creditsFloor,
             Math.min(usage.creditsCharged, MAX_GENERATION_CREDITS)
           );
 
