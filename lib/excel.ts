@@ -75,6 +75,14 @@ function isBillMarkerRow(row: unknown[]): boolean {
   return nonEmptyValues(row).some((value) => /^bill\s*no\.?\s*\d+/i.test(value));
 }
 
+function extractSabsSectionTitle(row: unknown[]): string | null {
+  const cells = row.map((cell) => toTrimmed(cell)).filter(Boolean);
+  const hasSabsCode = cells.some((c) => /^sabs\b/i.test(c));
+  const sectionCell = cells.find((c) => /\bSECTION\s+\d+[:.]/i.test(c));
+  if (!hasSabsCode || !sectionCell) return null;
+  return sectionCell;
+}
+
 function detectHeaderRow(row: unknown[], rowIndex: number): WorkbookColumnMap | null {
   const normalized = row.map((cell) => normalizeText(cell));
 
@@ -276,6 +284,16 @@ function extractSheetBOQ(
       currentBillTitle = marker ?? `Bill ${currentBillNumber}`;
       currentSection = null;
       pendingBillTitle = true;
+      continue;
+    }
+
+    const sabsTitle = extractSabsSectionTitle(row);
+    if (sabsTitle) {
+      currentBillNumber += 1;
+      currentBillTitle = sabsTitle;
+      currentSection = null;
+      pendingBillTitle = false;
+      ensureBill();
       continue;
     }
 
@@ -519,6 +537,14 @@ export async function patchExcelWithRates(
         currentBillTitle = marker ?? currentBillTitle;
         currentSection = null;
         pendingBillTitle = true;
+        continue;
+      }
+
+      const sabsPatchTitle = extractSabsSectionTitle(row);
+      if (sabsPatchTitle) {
+        currentBillTitle = sabsPatchTitle;
+        currentSection = null;
+        pendingBillTitle = false;
         continue;
       }
 

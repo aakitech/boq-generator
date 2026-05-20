@@ -9,10 +9,11 @@ interface Props {
   onApprove: (updated: BOQDocument) => void;
 }
 
-type Bucket = "matched" | "estimated" | "unrated";
+type Bucket = "matched" | "estimated" | "unrated" | "skipped";
 
 function getBucket(item: BOQItem): Bucket {
-  if (item.rate === null || item.rate_skip_reason) return "unrated";
+  if (item.rate_skip_reason) return "skipped";
+  if (item.rate === null) return "unrated";
   if (item.rate_source === "embedded_market_heuristic") return "estimated";
   if (
     item.rate_source === "workbook_local_pattern" ||
@@ -26,15 +27,17 @@ function getBucket(item: BOQItem): Bucket {
 }
 
 const BUCKET_LABELS: Record<Bucket, string> = {
-  matched: "Matched from library",
+  matched:   "Matched from library",
   estimated: "AI estimated — review",
-  unrated: "Missing — needs rate",
+  unrated:   "Missing — needs rate",
+  skipped:   "Intentionally blank",
 };
 
 const BUCKET_COLOURS: Record<Bucket, { dot: string; badge: string; row: string }> = {
   matched:   { dot: "bg-[#22c55e]", badge: "text-[#22c55e] bg-[#22c55e]/10", row: "" },
   estimated: { dot: "bg-[#f59e0b]", badge: "text-[#f59e0b] bg-[#f59e0b]/10", row: "bg-[#f59e0b]/5" },
   unrated:   { dot: "bg-[#ef4444]", badge: "text-[#ef4444] bg-[#ef4444]/10", row: "bg-[#ef4444]/5" },
+  skipped:   { dot: "bg-[#6366f1]", badge: "text-[#6366f1] bg-[#6366f1]/10", row: "" },
 };
 
 function flatItems(boq: BOQDocument): Array<{ billTitle: string; item: BOQItem }> {
@@ -55,13 +58,15 @@ export default function RateReviewPanel({ boq, onSave, onApprove }: Props) {
     const matched: typeof all = [];
     const estimated: typeof all = [];
     const unrated: typeof all = [];
+    const skipped: typeof all = [];
     for (const row of all) {
       const b = getBucket(row.item);
       if (b === "matched") matched.push(row);
       else if (b === "estimated") estimated.push(row);
+      else if (b === "skipped") skipped.push(row);
       else unrated.push(row);
     }
-    return { matched, estimated, unrated };
+    return { matched, estimated, unrated, skipped };
   }, [all]);
 
   const unratedCount = buckets.unrated.filter((r) => {
@@ -109,17 +114,17 @@ export default function RateReviewPanel({ boq, onSave, onApprove }: Props) {
         <div>
           <p className="text-[13px] font-semibold text-[#f5f5f5] tracking-tight">Rate Review</p>
           <p className="text-[11px] text-[#737373] mt-0.5">
-            {buckets.matched.length} matched · {buckets.estimated.length} estimated · {buckets.unrated.length} unrated
+            {buckets.matched.length} matched · {buckets.estimated.length} estimated · {buckets.unrated.length} unrated{buckets.skipped.length > 0 ? ` · ${buckets.skipped.length} intentionally blank` : ""}
           </p>
         </div>
         <div className="flex gap-2">
-          {(["matched", "estimated", "unrated"] as Bucket[]).map((b) => (
+          {(["matched", "estimated", "unrated", "skipped"] as Bucket[]).filter((b) => buckets[b].length > 0).map((b) => (
             <span
               key={b}
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${BUCKET_COLOURS[b].badge}`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${BUCKET_COLOURS[b].dot}`} />
-              {b === "matched" ? buckets.matched.length : b === "estimated" ? buckets.estimated.length : buckets.unrated.length}
+              {buckets[b].length}
             </span>
           ))}
         </div>
@@ -127,7 +132,7 @@ export default function RateReviewPanel({ boq, onSave, onApprove }: Props) {
 
       {/* Scrollable item list */}
       <div className="flex-1 overflow-y-auto">
-        {(["unrated", "estimated", "matched"] as Bucket[]).map((bucket) => {
+        {(["unrated", "estimated", "matched", "skipped"] as Bucket[]).map((bucket) => {
           const rows = buckets[bucket];
           if (rows.length === 0) return null;
           return (
@@ -185,6 +190,11 @@ export default function RateReviewPanel({ boq, onSave, onApprove }: Props) {
         {unratedCount > 0 && (
           <p className="text-[11px] text-[#737373] mb-2">
             {unratedCount} item{unratedCount > 1 ? "s" : ""} still need{unratedCount === 1 ? "s" : ""} a rate before you can approve.
+          </p>
+        )}
+        {buckets.skipped.length > 0 && unratedCount === 0 && (
+          <p className="text-[11px] text-[#6366f1]/80 mb-2">
+            {buckets.skipped.length} item{buckets.skipped.length !== 1 ? "s" : ""} intentionally blank (contractor-fill or specialist). You may enter rates but they are not required.
           </p>
         )}
         <button
