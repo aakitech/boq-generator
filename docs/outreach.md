@@ -11,6 +11,8 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 
 <!-- TIER 1 — Direct users: QS, estimators, cost managers -->
 ### To Contact
+
+<!-- Tier 1A — QS, estimators, cost managers (direct users) -->
 - [ ] Ndoumesour Tember — Construction Estimator, MTHABANE CIVILS AND PLANT
 - [ ] Andreas Jordaan — Professional QS, Freelance
 - [ ] Binaica Dalpat (PrQS, MRICS) — Senior QS, The Project Company (Mining & Infrastructure)
@@ -31,6 +33,81 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 - [ ] Bubele Zenani — Candidate QS, AECOM
 - [ ] Ronald Mugebe — QS, TN Zunzanyika Associates
 - [ ] Keith Musavengana — QS, Exodus and Company
+- [ ] Otlotleng Mphayi — Candidate QS, Collaborit Asset Management Engineering
+- [ ] Sinenhlanhla Ntuli — QS, FNB South Africa
+- [ ] Talent Mtumane — Junior QS, Figgup Projects
+- [ ] Zamatshana Sithole — Candidate QS, GT Chaane QS and Project Managers
+- [ ] Ncomile Mokwena — QS, Veer Steel Mills
+- [ ] Sitholumusa Ndlovu — QS, FBC Holdings Limited
+- [ ] Tinashe Njomboro — Junior QS, Nailit Incorporated
+- [ ] Amos Takudzwa Mutsvanga — QS / Procurement Officer, Leengate Sales
+- [ ] Nandi Zenzile (PrQS) — Professional QS, AECOM
+- [ ] Sisindise Mshunqane — QS, WBHO Construction
+- [ ] Ntlhari Colin Mahlauli — QS / Cost Controller, Cox Energy
+- [ ] Kagiso Magoele — Senior QS, JN Bentley
+- [ ] Tankiso Mphike (MRICS, PrQS) — Senior QS, Mott MacDonald
+- [ ] Kenneth Anyanwu (PrQS, MRICS) — Senior QS, Nala Consulting / Eskom Kusile
+- [ ] Khanyisa Mabasa (PrQS) — Professional QS, AECOM
+- [ ] Mandla Baloyi (MRICS) — Senior QS & Construction Programme Manager, Mafulufulu Consulting
+- [ ] Yahya Laher — Professional QS, AECOM (formerly Davis Langdon)
+- [ ] Masibonge Dinge — Senior QS, Continental Conveyors & Systems
+- [ ] Ayanda Fani (PrQS, PMAQS, MRICS) — Senior QS, Mintek
+- [ ] Tebogo Rabapane (MRICS) — Professional QS, Quantex Qatar
+- [ ] Stephen Tsanyawu — Senior Cost Consultant, MMQS
+- [ ] Suzanne Jordaan — Professional QS, Norval Wentzel Steinberg
+- [ ] Wiehann Steyn (PrQS) — Director & Pr. QS, Ascend Consulting Services
+- [ ] Dieter Du Plessis (PrQS) — Director, Rombi Quantity Surveyors
+- [ ] Sajjad Soliman (PrQS, MRICS) — PrQS, Rider Levett Bucknall
+- [ ] Lichelle Neethling — Shareholder & Director, Rider Levett Bucknall
+- [ ] Simunye Ntuli (PrQS) — Cost Manager, Turner & Townsend
+- [ ] Babalwa Rwexu — Associate: Project Cost Control, Mulilo
+- [ ] Ashley Chikodzi — Project QS, Oman Shapoorji Company LLC
+- [ ] Limpo Idudu — QS, Raubex Building
+- [ ] Nawaaz Babamia — Site QS, WBHO Construction
+- [ ] Robson Nangati — Site QS / Cost Estimator, CHINA STATE CONSTRUCTION
+- [ ] Johan Bruwer — QS, Pro-Plan Consulting Engineers
+- [ ] Saphokazi Macingwane — QS, Scatec ASA
+- [ ] Maggie Weimers — QS, Concor
+- [ ] Masego Finger — Intermediate QS, R & R
+- [ ] Tinashe Makombe — Professional QS, AECOM
+- [ ] Thando Mbali Mthembu — Professional QS, MLC Group
+- [ ] Rethabile Mapheya — QS, siviwe industries
+- [ ] Audicious Rasekhula — Senior QS, WBHO Construction
+- [ ] Mondeli Kupiso — Senior QS / Estimator, Proconics
+- [ ] Zanele Mkhwanazi — QS, Tri-Star Construction
+- [ ] Prelin Naidoo — Senior QS, WBHO Construction
+- [ ] Thato Molahloe — Senior QS, TEICHMANN STRUCTURES
+- [ ] Kgotsofalo Mangena — QS, WBHO Construction
+- [ ] Gerhard van Staden — QS, Triomf Staalwerke
+- [ ] Shajenthiran Shanmuganathan — QS, Mirage
+- [ ] Thabang Tswai — QS, Eskom Rotek Industries
+- [ ] Ruben Kruger — Candidate QS, Linde Construction
+- [ ] Assistance Seerane — QS, Yikusasa Building Contractors
+- [ ] Bongani April — QS, Central Developments Property Group
+- [ ] Dean Wasserman — Candidate QS, Rider Levett Bucknall
+- [ ] Dillan Schultz — Candidate QS, Fourteen28 Quantity Surveyors
+- [ ] Andile Zwane — Junior QS, WBHO Construction
+- [ ] Makarurama Makoni — Candidate QS, Rider Levett Bucknall
+- [ ] Divan Van Wyk — Candidate QS, Quantion
+- [ ] Samuel Pellissier — Candidate QS, Norval Wentzel Steinberg
+- [ ] Ewald Styger — Candidate QS, Profection Quantity Surveyors
+- [ ] Christiaan van Veijeren — Candidate QS, Rider Levett Bucknall
+- [ ] Mike Kahalwe — Candidate QS, Kahts & Sparks Quantity Surveyors
+- [ ] Zander Fourie — Junior QS, GVK-Siya Zama Building Contractors
+- [ ] Coca Mapetshana — Junior QS, Azzaro Quantity Surveyors
+- [ ] Mathabo Khosi — Junior QS, Bill of Quantity Production.com
+- [ ] Banele Ncatsha — QS, hbc homeless building construction
+- [ ] Sibusiso Nkwanyana — Candidate QS, TT Holdings
+- [ ] Nkululeko Masondo — Graduate QS, Eskom Holdings
+- [ ] Andzisani Baloyi — Candidate QS, KC Maiwashe & Associates
+- [ ] Sizwe Khoza — Junior QS, TMS-Redec
+- [ ] Natasha Mponzo — Candidate QS, Enumerate Consulting QS
+- [ ] Yonke Mlobeli — QS, John Sisk & Son
+- [ ] Llew Kahn — Estimator Roads & Earthworks, Roadspan Surfaces
+- [ ] Nondumiso Hope Nkosi — Estimator, Nzwalo Investments (Lumacon Airconditioning)
+- [ ] John Sibanda (PrQS, PrCM, MRICS) — Senior Estimator / QS, La Natura
+- [ ] Charl Witten — Construction Estimator, RSC Group
+- [ ] Divian Govender (Pr. CM) — Senior Estimator, Grinaker-LTA
 
 ### Contacted
 - [~] Ngoako Sefoko — Tendering Specialist, SPD Quantity Surveyors
