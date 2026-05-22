@@ -112,6 +112,7 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 ### Contacted
 - [~] Ngoako Sefoko — Tendering Specialist, SPD Quantity Surveyors
 - [~] Simba Banda — Contractor (independent)
+- [x] Paddington Kwaramba (PMP) — Surveyor / Construction Estimator, Masimba Holdings (Zimbabwe)
 
 ---
 
@@ -125,6 +126,12 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 ### Simba Banda
 - **Status:** Call done 2026-05-21
 - **Notes:** 46-min call. Finding specs in drawing packs "very very tedious." Insight: contractors need cost floors during client negotiations, not just tendering. Recommended targeting subcontractors and finishing trades. Promised Hungry Lion drawing pack. Follow-up with improved demo scheduled.
+
+### Paddington Kwaramba (PMP)
+- **Title:** Surveyor / Construction Estimator / Project Planner
+- **Company:** Masimba Holdings Limited, Harare, Zimbabwe
+- **Status:** Message sent 2026-05-22 — awaiting reply
+- **Notes:** 7+ years at Masimba on civil, roads, earthworks, bridges, mining. US$36M+ project cost experience. Cost management with Primavera. PMP certified. Replied positively to initial outreach ("No problem / Gooday Brighton"). Sent demo pitch + asked for email or WhatsApp to schedule Teams/WA call at 5/6/7pm.
 
 ### Ndoumesour Tember
 - **Title:** Construction Estimator
@@ -175,3 +182,4 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 |------|------|--------|---------|
 | 2026-05-21 | Simba Banda | 46-min video call | Positive — follow-up scheduled, Hungry Lion drawings promised |
 | 2026-05-22 | Ngoako Sefoko | 32-min video call | Positive — product link shared, WinQS intel, Joburg meeting potential |
+| 2026-05-22 | Paddington Kwaramba | LinkedIn DM sent | Replied positively — awaiting email/WhatsApp to schedule demo call |
