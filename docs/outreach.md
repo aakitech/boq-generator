@@ -112,7 +112,7 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 ### Contacted
 - [~] Ngoako Sefoko — Tendering Specialist, SPD Quantity Surveyors
 - [~] Simba Banda — Contractor (independent)
-- [x] Paddington Kwaramba (PMP) — Surveyor / Construction Estimator, Masimba Holdings (Zimbabwe)
+- [~] Paddington Kwaramba (PMP) — Surveyor / Construction Estimator, Masimba Holdings (Zimbabwe)
 
 ---
 
@@ -130,8 +130,8 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 ### Paddington Kwaramba (PMP)
 - **Title:** Surveyor / Construction Estimator / Project Planner
 - **Company:** Masimba Holdings Limited, Harare, Zimbabwe
-- **Status:** Message sent 2026-05-22 — awaiting reply
-- **Notes:** 7+ years at Masimba on civil, roads, earthworks, bridges, mining. US$36M+ project cost experience. Cost management with Primavera. PMP certified. Replied positively to initial outreach ("No problem / Gooday Brighton"). Sent demo pitch + asked for email or WhatsApp to schedule Teams/WA call at 5/6/7pm.
+- **Status:** Replied — awaiting call booking
+- **Notes:** 7+ years at Masimba on civil, roads, earthworks, bridges, mining. US$36M+ project cost experience. Cost management with Primavera. PMP certified. Replied positively to initial outreach. Asked "do you have something that can design roads" — used as opening to pitch both Anchorbase (standards/specs search) and BOQ Generator (priced BOQ in 10 min). Demo of both requested. Awaiting availability.
 
 ### Ndoumesour Tember
 - **Title:** Construction Estimator
@@ -183,3 +183,4 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 | 2026-05-21 | Simba Banda | 46-min video call | Positive — follow-up scheduled, Hungry Lion drawings promised |
 | 2026-05-22 | Ngoako Sefoko | 32-min video call | Positive — product link shared, WinQS intel, Joburg meeting potential |
 | 2026-05-22 | Paddington Kwaramba | LinkedIn DM sent | Replied positively — awaiting email/WhatsApp to schedule demo call |
+| 2026-05-23 | Paddington Kwaramba | Follow-up sent | Asked about road design — pitched Anchorbase + BOQ Generator, requested 20-min demo slot |
