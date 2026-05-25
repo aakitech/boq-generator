@@ -168,12 +168,13 @@ Never push directly to `master`.
 
 ### GitHub project linking
 
-When creating a new issue, always link it to the **BOQ Generator** GitHub project:
-- Project ID: `PVT_kwDOERV2WM4BYe32`
-- CLI: `gh issue create ... && gh project item-add 15 --owner aakitech --url <issue-url>`
-- Or via the GitHub UI: Issues → right sidebar → Projects → "BOQ Generator"
+When creating a new issue, always add it to the **BOQ Generator** project:
 
-All open issues should appear on the project board. If you create an issue without linking it, add it to the project immediately after.
+```bash
+gh issue edit <number> --add-project "BOQ Generator"
+```
+
+All open issues should appear on the project board. If you create an issue without linking it, run the command above immediately after.
 
 ## Migrations
 
