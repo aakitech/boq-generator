@@ -4,6 +4,7 @@ import { trackEvent } from "@/lib/analytics";
 import { consumeWalletCredits } from "@/lib/credits";
 import { extractWorkbookBOQ } from "@/lib/excel";
 import { sendBoqReadyEmail } from "@/lib/email/boq-ready";
+import { sendAdminServiceJobAlert } from "@/lib/email/admin-alerts";
 import { creditsForGeneratedBoq, MAX_GENERATION_CREDITS, summarizeAIUsage } from "@/lib/gemini-pricing";
 import { logger } from "@/lib/logger";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -50,6 +51,16 @@ export async function processGenerateBOQJob(args: {
 
   try {
     const db = createServiceClient();
+
+    // Fetch service metadata once — drives email routing, credit handling, and analytics
+    const { data: boqMeta } = await db
+      .from("boqs")
+      .select("service_tier, customer_email")
+      .eq("id", boq_id)
+      .single();
+    const isServiceJob = boqMeta?.service_tier === "done_for_you";
+    const customerEmail = boqMeta?.customer_email ?? null;
+
     await db
       .from("boqs")
       .update({
@@ -130,14 +141,34 @@ export async function processGenerateBOQJob(args: {
       throw new Error("Failed to save generated BOQ");
     }
 
-    await consumeWalletCredits(db, {
-      userId: user_id,
-      reason: "generate_boq",
-      referenceType: "boq",
-      referenceId: boq_id,
-      credits: generationCredits,
-      deltaUsd: usage.costUsd,
-    });
+    // Credit deduction — service jobs continue even if balance is insufficient
+    try {
+      const creditResult = await consumeWalletCredits(db, {
+        userId: user_id,
+        reason: "generate_boq",
+        referenceType: "boq",
+        referenceId: boq_id,
+        credits: generationCredits,
+        deltaUsd: usage.costUsd,
+        metadata: isServiceJob ? { service_tier: "done_for_you" } : undefined,
+      });
+      if (isServiceJob && creditResult.status === "insufficient") {
+        logger.warn("generate-boq job: service job ran with insufficient credits (uncollected)", {
+          boq_id,
+          creditsNeeded: generationCredits,
+          remaining: creditResult.remainingCredits,
+        });
+      }
+    } catch (creditErr) {
+      if (isServiceJob) {
+        logger.warn("generate-boq job: credit deduction failed for service job — continuing", {
+          boq_id,
+          error: creditErr instanceof Error ? creditErr.message : String(creditErr),
+        });
+      } else {
+        throw creditErr;
+      }
+    }
 
     trackEvent(user_id, "boq_generated_async", {
       boqId: saved.id,
@@ -146,9 +177,26 @@ export async function processGenerateBOQJob(args: {
       grandTotalZmw,
       aiCostUsd: usage.costUsd,
       creditsCharged: generationCredits,
+      service_tier: isServiceJob ? "done_for_you" : null,
     });
 
-    if (user_email) {
+    // Email routing: service jobs notify Brighton to review; self-serve notify the user
+    if (isServiceJob) {
+      try {
+        await sendAdminServiceJobAlert({
+          boqId: saved.id,
+          customerEmail: customerEmail ?? "unknown",
+          title,
+          docCount: documents.length,
+          isReadyForReview: true,
+        });
+      } catch (err) {
+        logger.warn("generate-boq job: service job review alert failed", {
+          boq_id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else if (user_email) {
       try {
         await sendBoqReadyEmail({ email: user_email, boqId: saved.id, title });
       } catch (err) {
