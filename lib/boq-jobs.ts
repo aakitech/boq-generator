@@ -170,7 +170,7 @@ export async function processGenerateBOQJob(args: {
       }
     }
 
-    trackEvent(user_id, "boq_generated_async", {
+    trackEvent(user_id, "boq_generated", {
       boqId: saved.id,
       title,
       itemCount,
@@ -214,6 +214,11 @@ export async function processGenerateBOQJob(args: {
       error: err instanceof Error ? err.message : String(err),
     });
     await markGenerationFailed(boq_id, err);
+    trackEvent(user_id, "boq_generation_failed", {
+      boqId: boq_id,
+      error: err instanceof Error ? err.message : String(err),
+      service_tier: null,
+    });
     throw err;
   }
 }
@@ -297,7 +302,7 @@ export async function processRateBOQJob(args: {
       deltaUsd: usage.costUsd,
     });
 
-    trackEvent(user_id, "boq_rated_async", {
+    trackEvent(user_id, "boq_rated", {
       boqId: boq_id,
       itemCount,
       storageKey: storage_key,
@@ -323,6 +328,10 @@ export async function processRateBOQJob(args: {
       error: err instanceof Error ? err.message : String(err),
     });
     await markRatingFailed(boq_id, err);
+    trackEvent(user_id, "boq_rating_failed", {
+      boqId: boq_id,
+      error: err instanceof Error ? err.message : String(err),
+    });
     throw err;
   }
 }

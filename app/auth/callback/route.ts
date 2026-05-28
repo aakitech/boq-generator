@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { sendAdminLoginAlert } from "@/lib/email/admin-alerts";
+import { identifyUser, trackEvent } from "@/lib/analytics";
 import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
@@ -35,6 +36,8 @@ export async function GET(request: NextRequest) {
         sendAdminLoginAlert({ email: user.email ?? "unknown", userId: user.id }).catch((err) =>
           logger.warn("Admin login alert failed", { error: String(err) })
         );
+        identifyUser(user.id, { email: user.email, name: user.user_metadata?.full_name });
+        trackEvent(user.id, "login", { provider: user.app_metadata?.provider ?? "unknown" });
       }
       return NextResponse.redirect(`${origin}${next}`);
     }

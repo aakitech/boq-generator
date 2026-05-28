@@ -82,13 +82,14 @@ function GeneratingContent() {
         if (!result.ok) throw new Error(result.error);
 
         setProgress(100);
-        ph.capture("boq_ready", { boq_id: boqId });
+        ph.capture("boq_generation_completed", { boq_id: boqId });
         localStorage.removeItem("boq_type");
         localStorage.removeItem("boq_rate_context");
         router.push(`/boq/${boqId}`);
       } catch (err) {
         clearInterval(progressTimer);
         const msg = err instanceof Error ? err.message : "Something went wrong";
+        ph.capture("boq_generation_failed", { boq_id: boqId, error: msg });
         setError(msg);
       }
     }

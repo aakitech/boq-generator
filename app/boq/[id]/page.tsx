@@ -127,9 +127,10 @@ export default function BOQPage() {
         paymentReference: row.service_payment_reference ?? null,
       });
       setLoading(false);
+      ph.capture("boq_viewed", { boq_id: id, service_tier: row.service_tier ?? null });
     }
     load();
-  }, [id, router]);
+  }, [id, router, ph]);
 
   async function handleDeliverToCustomer() {
     setDelivering(true);
@@ -237,11 +238,7 @@ export default function BOQPage() {
   async function handleExport() {
     if (!boq) return;
 
-    ph.capture("excel_downloaded", {
-      boq_id: boqId,
-      bill_count: boq.bills.length,
-      item_count: boq.bills.reduce((s, b) => s + b.items.filter((i) => !i.is_header).length, 0),
-    });
+    ph.capture("excel_download_attempted", { boq_id: boqId, type: "generated" });
     setExporting(true);
     try {
       const res = await fetch("/api/export", {
@@ -257,6 +254,7 @@ export default function BOQPage() {
       a.download = `BOQ_${boq.project.replace(/[^\w]/g, "_").slice(0, 40)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
+      ph.capture("excel_downloaded", { boq_id: boqId, type: "generated", bill_count: boq.bills.length });
     } catch (e) {
       alert("Export failed. Please try again.");
       console.error(e);
@@ -266,14 +264,9 @@ export default function BOQPage() {
   }
 
   async function handleExportPatched() {
+    ph.capture("excel_download_attempted", { boq_id: boqId, type: "patched_original" });
     setExportingPatched(true);
     try {
-      ph.capture("excel_downloaded", {
-        boq_id: boqId,
-        type: "patched_original",
-        bill_count: boq?.bills.length ?? 0,
-        item_count: boq?.bills.reduce((s, b) => s + b.items.filter((i) => !i.is_header).length, 0) ?? 0,
-      });
       const res = await fetch(`/api/export-patched/${boqId}`);
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
@@ -283,6 +276,7 @@ export default function BOQPage() {
       a.download = `Rated_${boq?.project?.replace(/[^\w]/g, "_").slice(0, 40) ?? "BOQ"}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
+      ph.capture("excel_downloaded", { boq_id: boqId, type: "patched_original" });
     } catch (e) {
       alert("Export failed. Please try again.");
       console.error(e);
