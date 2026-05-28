@@ -40,6 +40,34 @@ export async function sendAdminLoginAlert(options: {
   );
 }
 
+export async function sendAdminServiceJobAlert(options: {
+  boqId: string;
+  customerEmail: string;
+  title: string;
+  docCount: number;
+  isReadyForReview?: boolean;
+}): Promise<void> {
+  const { boqId, customerEmail, title, docCount, isReadyForReview } = options;
+  const timestamp = new Date().toISOString();
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.NEXT_PUBLIC_BASE_URL ??
+    "https://boq.aakitech.com"
+  ).replace(/\/$/, "");
+
+  if (isReadyForReview) {
+    await sendAdminEmail(
+      `[BOQ] Service job ready for review — ${title}`,
+      `A service job has completed generation and is ready for review.\n\nTitle: ${title}\nCustomer: ${customerEmail}\nBOQ ID: ${boqId}\nTime: ${timestamp}\n\nReview and approve:\n${appUrl}/boq/${boqId}?admin=1`
+    );
+  } else {
+    await sendAdminEmail(
+      `[BOQ] New service job created — ${customerEmail}`,
+      `A new done-for-you service job has been created.\n\nCustomer: ${customerEmail}\nTitle: ${title}\nDocuments: ${docCount}\nBOQ ID: ${boqId}\nTime: ${timestamp}\n\nView job:\n${appUrl}/admin`
+    );
+  }
+}
+
 export async function sendAdminBOQAlert(options: {
   email: string;
   userId: string;

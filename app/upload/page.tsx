@@ -81,6 +81,7 @@ function RateBOQTab() {
 
   async function handleRate() {
     if (!rateBoqId) return;
+    ph.capture("rate_boq_initiated", { boq_id: rateBoqId });
     setStage("submitting");
     setError(null);
     try {

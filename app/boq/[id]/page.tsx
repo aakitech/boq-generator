@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 
 import type { BOQBill, BOQDocument, BOQItem, BOQQualitySummary } from "@/lib/types";
 import { usePostHog } from "posthog-js/react";
@@ -15,6 +15,11 @@ interface DBBoq {
   data: BOQDocument;
   source_excel_key?: string | null;
   review_status?: string | null;
+  service_tier?: string | null;
+  service_status?: string | null;
+  customer_email?: string | null;
+  service_package?: string | null;
+  service_payment_reference?: string | null;
 }
 
 interface AssistantMessage {
@@ -54,8 +59,20 @@ function unresolvedPlaceholder(item: BOQItem): string | null {
 export default function BOQPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const isAdminView = searchParams.get("admin") === "1";
   const [boq, setBOQ] = useState<BOQDocument | null>(null);
   const [boqId] = useState(id);
+  const [serviceMeta, setServiceMeta] = useState<{
+    isServiceJob: boolean;
+    serviceStatus: string | null;
+    customerEmail: string | null;
+    servicePackage: string | null;
+    paymentReference: string | null;
+  }>({ isServiceJob: false, serviceStatus: null, customerEmail: null, servicePackage: null, paymentReference: null });
+  const [delivering, setDelivering] = useState(false);
+  const [deliverError, setDeliverError] = useState<string | null>(null);
+  const [deliverSuccess, setDeliverSuccess] = useState(false);
   const ph = usePostHog();
   const [exporting, setExporting] = useState(false);
   const [exportingPatched, setExportingPatched] = useState(false);
@@ -102,10 +119,36 @@ export default function BOQPage() {
       const approved = row.review_status === "approved";
       setReviewApproved(approved);
       setReviewPanelOpen(!approved);
+      setServiceMeta({
+        isServiceJob: row.service_tier === "done_for_you",
+        serviceStatus: row.service_status ?? null,
+        customerEmail: row.customer_email ?? null,
+        servicePackage: row.service_package ?? null,
+        paymentReference: row.service_payment_reference ?? null,
+      });
       setLoading(false);
+      ph.capture("boq_viewed", { boq_id: id, service_tier: row.service_tier ?? null });
     }
     load();
-  }, [id, router]);
+  }, [id, router, ph]);
+
+  async function handleDeliverToCustomer() {
+    setDelivering(true);
+    setDeliverError(null);
+    try {
+      const res = await fetch(`/api/admin/service-job/${boqId}/deliver`, { method: "POST" });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Delivery failed" }));
+        throw new Error(error || "Delivery failed");
+      }
+      setDeliverSuccess(true);
+      setServiceMeta((prev) => ({ ...prev, serviceStatus: "delivered" }));
+      setTimeout(() => router.push("/admin"), 2000);
+    } catch (err) {
+      setDeliverError(err instanceof Error ? err.message : "Delivery failed. Please try again.");
+      setDelivering(false);
+    }
+  }
 
   const saveToDB = useCallback(
     (updated: BOQDocument) => {
@@ -195,11 +238,7 @@ export default function BOQPage() {
   async function handleExport() {
     if (!boq) return;
 
-    ph.capture("excel_downloaded", {
-      boq_id: boqId,
-      bill_count: boq.bills.length,
-      item_count: boq.bills.reduce((s, b) => s + b.items.filter((i) => !i.is_header).length, 0),
-    });
+    ph.capture("excel_download_attempted", { boq_id: boqId, type: "generated" });
     setExporting(true);
     try {
       const res = await fetch("/api/export", {
@@ -215,6 +254,7 @@ export default function BOQPage() {
       a.download = `BOQ_${boq.project.replace(/[^\w]/g, "_").slice(0, 40)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
+      ph.capture("excel_downloaded", { boq_id: boqId, type: "generated", bill_count: boq.bills.length });
     } catch (e) {
       alert("Export failed. Please try again.");
       console.error(e);
@@ -224,14 +264,9 @@ export default function BOQPage() {
   }
 
   async function handleExportPatched() {
+    ph.capture("excel_download_attempted", { boq_id: boqId, type: "patched_original" });
     setExportingPatched(true);
     try {
-      ph.capture("excel_downloaded", {
-        boq_id: boqId,
-        type: "patched_original",
-        bill_count: boq?.bills.length ?? 0,
-        item_count: boq?.bills.reduce((s, b) => s + b.items.filter((i) => !i.is_header).length, 0) ?? 0,
-      });
       const res = await fetch(`/api/export-patched/${boqId}`);
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
@@ -241,6 +276,7 @@ export default function BOQPage() {
       a.download = `Rated_${boq?.project?.replace(/[^\w]/g, "_").slice(0, 40) ?? "BOQ"}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
+      ph.capture("excel_downloaded", { boq_id: boqId, type: "patched_original" });
     } catch (e) {
       alert("Export failed. Please try again.");
       console.error(e);
@@ -466,8 +502,49 @@ export default function BOQPage() {
     return sum + billTotal;
   }, 0);
 
+  const PACKAGE_LABELS: Record<string, string> = {
+    boq_only: "BOQ Only",
+    tender_pack: "BOQ + Tender Pack",
+    full_submission: "Full Submission Pack",
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a]">
+      {isAdminView && serviceMeta.isServiceJob && serviceMeta.serviceStatus === "pending_review" && (
+        <div className="border-b border-[#f59e0b]/20 bg-[#f59e0b]/5 px-4 py-3">
+          <div className="mx-auto max-w-[1500px] flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 text-[13px] min-w-0">
+              <span className="text-[#f59e0b] font-semibold flex-shrink-0">Service Job</span>
+              <span className="text-[#737373]">→</span>
+              <span className="text-[#d4d4d4] font-mono truncate">{serviceMeta.customerEmail}</span>
+              {serviceMeta.servicePackage && (
+                <span className="text-[#525252] hidden sm:block">
+                  {PACKAGE_LABELS[serviceMeta.servicePackage] ?? serviceMeta.servicePackage}
+                </span>
+              )}
+              {serviceMeta.paymentReference && (
+                <span className="text-[#404040] font-mono hidden md:block">ref: {serviceMeta.paymentReference}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {deliverError && (
+                <span className="text-[12px] text-[#ef4444]">{deliverError}</span>
+              )}
+              {deliverSuccess ? (
+                <span className="text-[12px] text-[#22c55e] font-medium">Delivered — redirecting…</span>
+              ) : (
+                <button
+                  onClick={handleDeliverToCustomer}
+                  disabled={delivering}
+                  className="rounded bg-[#f59e0b] hover:bg-[#fbbf24] disabled:opacity-50 px-4 py-1.5 text-[12px] font-semibold text-black transition-colors"
+                >
+                  {delivering ? "Sending…" : "Approve & Send to Customer"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-20 border-b border-white/15 bg-[#0a0a0a]/95 backdrop-blur">
         <div className="max-w-[1500px] mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
