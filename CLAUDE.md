@@ -166,6 +166,8 @@ Innocent's BOQs are the ground truth. Key conventions:
 
 Never push directly to `master`.
 
+**Never run `vercel --prod` or `vercel deploy` manually.** Merging to `master` is the deploy. Manual deploys bypass the normal flow and can create confusion about what's live.
+
 ### GitHub project linking
 
 When creating a new issue, always add it to the **BOQ Generator** project:
