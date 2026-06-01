@@ -113,6 +113,8 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 - [~] Ngoako Sefoko — Tendering Specialist, SPD Quantity Surveyors
 - [~] Simba Banda — Contractor (independent)
 - [~] Paddington Kwaramba (PMP) — Surveyor / Construction Estimator, Masimba Holdings (Zimbabwe)
+- [x] Nilson Biton (FCCM, MBA) — Contracts Director, Construction Associates (Eswatini)
+- [~] Michael Knuckles — Senior Infrastructure Construction Inspector, MARTA (Atlanta, USA)
 
 ---
 
@@ -174,6 +176,18 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 - **Message:**
 > Hi Denelle, I spoke with Ngoako at SPD recently about a BOQ generation tool I'm building — he suggested I reach out to you as well. The short version: upload a SoW and drawings, get a structured rated BOQ in about 10 minutes. Would love a second perspective from someone at the same firm. Happy to do a quick demo.
 
+### Nilson Biton (FCCM, MBA)
+- **Title:** Contracts Director
+- **Company:** Construction Associates, Manzini, Eswatini
+- **Status:** Message sent 2026-06-01 — awaiting reply
+- **Notes:** Senior contracts professional — FIDIC certified (NEC3, FIDIC), R1.8bn ICC project background, also runs own civils company in Malawi. Not a day-to-day estimator but manages QS teams. Pitched BOQ Generator as a tool for the team. Outside core Zambia/SA market but strong regional influence.
+
+### Michael Knuckles
+- **Title:** Senior Infrastructure Construction Inspector
+- **Company:** MARTA (Metropolitan Atlanta Rapid Transit Authority), Atlanta, USA
+- **Status:** Replied — awaiting call
+- **Notes:** US-based, transit/fiber/underground utilities infrastructure. Not core QS market but warm and curious. Replied "would love to chat and see where our interests align." Pitched both BOQ Generator and Anchorbase. Testing for overlap before investing more time.
+
 ---
 
 ## Log
@@ -184,3 +198,5 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 | 2026-05-22 | Ngoako Sefoko | 32-min video call | Positive — product link shared, WinQS intel, Joburg meeting potential |
 | 2026-05-22 | Paddington Kwaramba | LinkedIn DM sent | Replied positively — awaiting email/WhatsApp to schedule demo call |
 | 2026-05-23 | Paddington Kwaramba | Follow-up sent | Asked about road design — pitched Anchorbase + BOQ Generator, requested 20-min demo slot |
+| 2026-06-01 | Nilson Biton | LinkedIn DM sent | Awaiting reply |
+| 2026-06-01 | Michael Knuckles | LinkedIn DM sent | Replied positively — awaiting call to explore overlap |
