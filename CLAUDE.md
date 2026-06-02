@@ -94,6 +94,7 @@ Things that are non-obvious and must not be forgotten when touching related code
 - **Email routing in `lib/boq-jobs.ts`:** If `service_tier = 'done_for_you'`, completion sends an admin "ready for review" alert — NOT a "BOQ ready" email to Brighton. Self-serve still sends to `user_email`. Always preserve this branch when editing the job completion section.
 - **Admin guard:** All `/app/admin/` pages and `/app/api/admin/` routes call `isManualPaymentAdmin(user)` from `lib/auth/manual-payment-admin.ts`. This checks `MANUAL_PAYMENT_APPROVER_EMAILS` env var. If you add a new admin route, this guard is mandatory.
 - **`boqs` migrations are numbered and immutable.** Current highest: `017`. Next migration must be `018_*.sql`. Never edit existing migration files.
+- **Inngest env vars — use `INNGEST_API_BASE_URL`, not `INNGEST_BASE_URL`:** `INNGEST_BASE_URL` is a catch-all that redirects BOTH the serve URL AND event sends to your domain — events go to `boq.aakitech.com/e/<key>` instead of Inngest's cloud, causing 404s. Use `INNGEST_API_BASE_URL=https://boq.aakitech.com` to pin the serve URL only. Required production vars: `INNGEST_API_BASE_URL`, `INNGEST_EVENT_KEY` (from Inngest Event Keys dashboard), `INNGEST_SIGNING_KEY` (from Inngest API Keys dashboard).
 - **Landing page contact email:** Driven by `NEXT_PUBLIC_CONTACT_EMAIL` env var (Vercel: `software@aakitech.com`). Used in service offer mailto links. If you change the contact mechanism, update `app/page.tsx` and this env var together.
 - **Analytics `service_tier` property:** All PostHog events in the generation flow carry `service_tier: 'done_for_you' | null`. Preserve this when adding new `trackEvent` calls so self-serve vs service metrics can be separated in PostHog.
 - **The `boq/[id]/page.tsx` admin banner:** Visible when `?admin=1` is in the URL AND `service_tier = 'done_for_you'` AND `service_status = 'pending_review'`. It calls `POST /api/admin/service-job/[id]/deliver`. If you refactor the BOQ page, keep these three conditions intact.
@@ -217,7 +218,7 @@ npx vitest run    # Vitest + @testing-library/react unit tests
 | Symptom | Cause | Fix |
 |---|---|---|
 | BOQ generation never starts locally | Inngest dev server not running | `npx inngest-cli@latest dev` |
-| BOQ stuck in production | Inngest not configured | Add `INNGEST_EVENT_KEY` + `INNGEST_SIGNING_KEY` to Vercel; register serve URL |
+| BOQ stuck in production | Inngest not configured | Add `INNGEST_API_BASE_URL`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` to Vercel; register serve URL. **Never use `INNGEST_BASE_URL`** — it redirects event sends to your own domain, causing 404s |
 | Tables missing | Migrations haven't run | Run SQL files in order from `supabase/migrations/` |
 | Stripe checkout fails | `STRIPE_SECRET_KEY` missing | Add correct key in Vercel |
 | Auth redirect loop | Supabase redirect URLs wrong | Add `/auth/callback` in Supabase Auth settings |
