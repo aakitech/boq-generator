@@ -185,8 +185,8 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 ### Michael Knuckles
 - **Title:** Senior Infrastructure Construction Inspector
 - **Company:** MARTA (Metropolitan Atlanta Rapid Transit Authority), Atlanta, USA
-- **Status:** Replied — awaiting call
-- **Notes:** US-based, transit/fiber/underground utilities infrastructure. Not core QS market but warm and curious. Replied "would love to chat and see where our interests align." Pitched both BOQ Generator and Anchorbase. Testing for overlap before investing more time.
+- **Status:** Call booked — 2026-06-02 12pm EST / 7pm SAST
+- **Notes:** US-based, transit/fiber/underground utilities infrastructure. Also building software himself in the construction space — potential partner rather than customer. Replied "would love to chat and see where interests align that could possibly lead to potential partnership." Call booked for 30 min. Awaiting email address for calendar invite.
 
 ---
 
@@ -200,3 +200,4 @@ Updated as conversations progress. 181 Tier 1 contacts (QS/estimators) identifie
 | 2026-05-23 | Paddington Kwaramba | Follow-up sent | Asked about road design — pitched Anchorbase + BOQ Generator, requested 20-min demo slot |
 | 2026-06-01 | Nilson Biton | LinkedIn DM sent | Awaiting reply |
 | 2026-06-01 | Michael Knuckles | LinkedIn DM sent | Replied positively — awaiting call to explore overlap |
+| 2026-06-02 | Michael Knuckles | Call booked | 12pm EST / 7pm SAST — 30-min intro, potential partnership angle |
