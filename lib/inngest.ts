@@ -11,7 +11,7 @@ function hasConfiguredEnvValue(value: string | undefined): boolean {
 const hasExplicitDevMode = process.env.INNGEST_DEV !== undefined;
 const hasCloudOrCustomEventTarget = Boolean(
   hasConfiguredEnvValue(process.env.INNGEST_EVENT_KEY) ||
-    hasConfiguredEnvValue(process.env.INNGEST_BASE_URL) ||
+    hasConfiguredEnvValue(process.env.INNGEST_API_BASE_URL) ||
     hasConfiguredEnvValue(process.env.INNGEST_EVENT_API_BASE_URL)
 );
 
