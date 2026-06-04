@@ -163,9 +163,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ boq_id: saved.id, processing_status: "pending" });
   } catch (err) {
-    logger.error("admin service-job: unexpected error", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return NextResponse.json({ error: "Failed to create service job. Please try again." }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("admin service-job: unexpected error", { error: message });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
