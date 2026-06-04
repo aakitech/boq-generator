@@ -81,11 +81,9 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (dbError || !saved) {
-      logger.error("admin service-job: failed to create BOQ row", {
-        error: String(dbError),
-        route: "admin/service-job",
-      });
-      return NextResponse.json({ error: "Failed to create service job. Please try again." }, { status: 500 });
+      const msg = dbError ? `DB insert failed: ${dbError.message} (code: ${dbError.code})` : "DB insert returned no data";
+      logger.error("admin service-job: failed to create BOQ row", { error: msg, route: "admin/service-job" });
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     sendAdminServiceJobAlert({
