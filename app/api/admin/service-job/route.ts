@@ -81,9 +81,12 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (dbError || !saved) {
-      const msg = dbError ? `DB insert failed: ${dbError.message} (code: ${dbError.code})` : "DB insert returned no data";
-      logger.error("admin service-job: failed to create BOQ row", { error: msg, route: "admin/service-job" });
-      return NextResponse.json({ error: msg }, { status: 500 });
+      logger.error("admin service-job: failed to create BOQ row", {
+        error: dbError?.message,
+        code: dbError?.code,
+        route: "admin/service-job",
+      });
+      return NextResponse.json({ error: "Failed to create service job. Please try again." }, { status: 500 });
     }
 
     sendAdminServiceJobAlert({
@@ -161,8 +164,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ boq_id: saved.id, processing_status: "pending" });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error("admin service-job: unexpected error", { error: message });
-    return NextResponse.json({ error: message }, { status: 500 });
+    logger.error("admin service-job: unexpected error", { error: err instanceof Error ? err.message : String(err) });
+    return NextResponse.json({ error: "Failed to create service job. Please try again." }, { status: 500 });
   }
 }
