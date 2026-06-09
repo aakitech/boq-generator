@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PROJECT_TYPES, type ProjectType } from "@/lib/project-types";
 
 interface ProcessedDoc {
   document_id: string;
@@ -87,6 +88,7 @@ export default function NewServiceJobForm() {
   const [projectName, setProjectName] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [servicePackage, setServicePackage] = useState<"boq_only" | "tender_pack" | "full_submission">("boq_only");
+  const [projectType, setProjectType] = useState<ProjectType>("building");
   const [files, setFiles] = useState<UploadingFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -149,6 +151,15 @@ export default function NewServiceJobForm() {
           payment_reference: paymentReference.trim() || undefined,
           service_package: servicePackage,
           documents,
+          rate_context: {
+            province: "Lusaka",
+            projectType,
+            accessibility: "main_road",
+            labourSource: "mixed",
+            marginPct: 15,
+            estimatedValueZMW: null,
+            isGovernmentTender: false,
+          },
         }),
       });
 
@@ -240,6 +251,28 @@ export default function NewServiceJobForm() {
             </label>
           ))}
         </div>
+      </div>
+
+      {/* Project type */}
+      <div>
+        <label
+          htmlFor="service-project-type"
+          className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#404040] mb-2"
+        >
+          Project Type
+        </label>
+        <select
+          id="service-project-type"
+          value={projectType}
+          onChange={(e) => setProjectType(e.target.value as ProjectType)}
+          className="w-full rounded border border-[#262626] bg-[#111] px-3 py-2.5 text-[13px] text-[#f5f5f5] focus:border-[#f59e0b] focus:outline-none transition-colors"
+        >
+          {PROJECT_TYPES.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Document upload */}

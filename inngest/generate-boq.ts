@@ -112,12 +112,26 @@ export const generateBOQJob = inngest.createFunction(
           const bundleText = buildPromptBundle(truncated);
           const { structure_type: structureMode, blocks } = await classifyProjectStructure(truncated, usageCollector);
 
-          let structureRaw = await generateStructure(bundleText, false, structureMode, blocks, usageCollector);
+          let structureRaw = await generateStructure(
+            bundleText,
+            false,
+            structureMode,
+            blocks,
+            usageCollector,
+            rate_context?.projectType
+          );
           let structure = normalizeStructure(structureRaw);
           structure.structure_mode = structureMode;
 
           if (countNonHeaderItems(structure) === 0) {
-            structureRaw = await generateStructure(bundleText, true, structureMode, blocks, usageCollector);
+            structureRaw = await generateStructure(
+              bundleText,
+              true,
+              structureMode,
+              blocks,
+              usageCollector,
+              rate_context?.projectType
+            );
             structure = normalizeStructure(structureRaw);
             structure.structure_mode = structureMode;
           }
