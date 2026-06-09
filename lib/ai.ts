@@ -25,6 +25,11 @@ import type {
 import { computeDeterministicQA, mergeQAScores } from "./boq-qa";
 import { buildDefaultRateReference } from "./rate-reference";
 import { findRateAnchorsVector } from "./rate-matcher";
+import {
+  formatProjectType,
+  isInteriorProjectType,
+  type ProjectType,
+} from "./project-types";
 
 type QuantitySource = "explicit" | "derived" | "assumed";
 type SOWValidationResult = DocumentClassification;
@@ -1084,6 +1089,29 @@ RULES:
 5. If uncertain, include the item with best possible description rather than dropping it.
 6. Write descriptions in ASAQS style: work method + material + location/dimension.`;
 
+const INTERIOR_SCOPE_INSTRUCTION = `
+
+INTERIOR REMODEL / RENOVATION / SHOPFIT SCOPE:
+- Treat this as work within or modifying an existing building, not as a new ground-up building.
+- Override the default ground-up bill sequence with this remodel sequence:
+  Bill 1 - PRELIMINARY AND GENERAL ITEMS
+  Bill 2 - DEMOLITION AND ALTERATIONS
+  Bill 3 - PARTITIONS AND LOCAL STRUCTURAL ALTERATIONS
+  Bill 4 - CEILINGS AND BULKHEADS
+  Bill 5 - INTERNAL FINISHES
+  Bill 6 - JOINERY, SHOPFITTING AND IRONMONGERY
+  Bill 7 - PLUMBING AND DRAINAGE
+  Bill 8 - ELECTRICAL AND DATA
+  Bill 9+ - MECHANICAL, FIRE, SIGNAGE, SPECIALIST WORKS, and evidenced external works
+- Put removal, stripping-out, making-safe, and making-good work in DEMOLITION AND ALTERATIONS, never in PRELIMINARY AND GENERAL ITEMS.
+- Do not title a bill SUBSTRUCTURE or SUPERSTRUCTURE. Use PARTITIONS AND LOCAL STRUCTURAL ALTERATIONS for evidenced new partitions, lintels, trimming steel, and local supports.
+- Do not create a SUBSTRUCTURE bill for site clearance, bulk earthworks, ant-proofing, hardcore, blinding, foundations, surface beds, DPM, or plinth walls by default.
+- Do not create new structural columns, primary beams, suspended slabs, or a complete structural frame by default.
+- Include substructure or structural-frame work only when the source documents explicitly require a specific alteration, support, opening, foundation, slab repair, lintel, or local structural element.
+- Keep explicitly documented local supports such as lintels, trimming steel, lip channels, equipment plinths, and supports for signage or services.
+- Never infer ground-up structural scope merely because drawings mention ground-floor drainage, grease traps, underground services, or existing structural elements.
+- Prioritise demolition and alterations, finishes, ceilings, joinery, fittings, plumbing, electrical, mechanical ventilation, signage, and other fit-out trades evidenced by the documents.`;
+
 const QUANTITY_PROMPT = `You are a senior quantity surveyor performing a taking-off exercise under ASAQS/SMM7 measurement rules. You extract or estimate quantities from the Scope of Work for each pre-defined BOQ item.
 
 TASK:
@@ -1155,6 +1183,28 @@ Final bill — EXTERNAL WORKS AND SERVICES (site-wide items not belonging to a s
   );
 }
 
+export function buildStructureSystemInstruction(
+  recoveryMode: boolean,
+  structureMode: StructureMode = "trade_based",
+  blocks: string[] = [],
+  projectType?: string
+): string {
+  const baseInstruction = recoveryMode
+    ? STRUCTURE_RECOVERY_PROMPT
+    : structureMode === "block_based"
+      ? buildMultiBlockStructurePrompt(blocks)
+      : STRUCTURE_PROMPT;
+
+  if (!isInteriorProjectType(projectType)) {
+    return baseInstruction;
+  }
+
+  return `${baseInstruction}
+
+PROJECT TYPE: ${formatProjectType(projectType ?? "")}
+${INTERIOR_SCOPE_INSTRUCTION}`;
+}
+
 export async function classifyProjectStructure(
   documents: GenerationInputDocument[],
   usageCollector?: GeminiUsageCollector
@@ -1208,13 +1258,15 @@ export async function generateStructure(
   recoveryMode: boolean,
   structureMode: StructureMode = "trade_based",
   blocks: string[] = [],
-  usageCollector?: GeminiUsageCollector
+  usageCollector?: GeminiUsageCollector,
+  projectType?: string
 ): Promise<StructurePassResponse> {
-  const systemInstruction = recoveryMode
-    ? STRUCTURE_RECOVERY_PROMPT
-    : structureMode === "block_based"
-      ? buildMultiBlockStructurePrompt(blocks)
-      : STRUCTURE_PROMPT;
+  const systemInstruction = buildStructureSystemInstruction(
+    recoveryMode,
+    structureMode,
+    blocks,
+    projectType
+  );
 
   return callModel<StructurePassResponse>({
     prompt: `Extract BOQ structure only from this document bundle:\n\n${bundleText}`,
@@ -2579,7 +2631,7 @@ ${JSON.stringify(batch)}`,
 
 export type RateContext = {
   province: string;           // e.g. "Lusaka", "Copperbelt", "Eastern"
-  projectType: string;        // "building" | "civil" | "water_sanitation" | "road" | "mep" | "mixed"
+  projectType: ProjectType;
   accessibility: string;      // "main_road" | "gravel_road" | "remote"
   labourSource: string;       // "local_unskilled" | "mixed" | "imported_skilled"
   marginPct: number;          // e.g. 10, 15, 20
@@ -2645,7 +2697,7 @@ PRIVATE/COMMERCIAL CONTRACT:
   return `SITE-SPECIFIC PRICING RULES — these override the generic ranges above where they conflict:
 
 Province: ${ctx.province} (use ZPPA ${ctx.province} provincial rates where available)
-Project type: ${ctx.projectType.replace("_", " ")}
+Project type: ${formatProjectType(ctx.projectType)}
 Margin: ${ctx.marginPct}% O&P — this is already applied programmatically to AI-estimated rates, so do NOT add it again in your rates. Return base all-in rates (material + labour + plant + waste) WITHOUT additional margin markup.
 
 ACCESSIBILITY: ${accessNote}
@@ -2710,12 +2762,26 @@ export async function generateBOQ(
 
   const { structure_type: structureMode, blocks } = await classifyProjectStructure(documents, opts?.usageCollector);
 
-  const structureRaw = await generateStructure(bundleText, false, structureMode, blocks, opts?.usageCollector);
+  const structureRaw = await generateStructure(
+    bundleText,
+    false,
+    structureMode,
+    blocks,
+    opts?.usageCollector,
+    opts?.rateContext?.projectType
+  );
   let structure = normalizeStructure(structureRaw);
   structure.structure_mode = structureMode;
 
   if (countNonHeaderItems(structure) === 0) {
-    const retryRaw = await generateStructure(bundleText, true, structureMode, blocks, opts?.usageCollector);
+    const retryRaw = await generateStructure(
+      bundleText,
+      true,
+      structureMode,
+      blocks,
+      opts?.usageCollector,
+      opts?.rateContext?.projectType
+    );
     structure = normalizeStructure(retryRaw);
     structure.structure_mode = structureMode;
   }

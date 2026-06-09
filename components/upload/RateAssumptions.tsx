@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import {
+  formatProjectType,
+  PROJECT_TYPES,
+  type ProjectType,
+} from "@/lib/project-types";
 
 export interface RateContext {
   province: string;
-  projectType: string;
+  projectType: ProjectType;
   accessibility: string;
   labourSource: string;
   marginPct: number;
@@ -15,15 +20,6 @@ export interface RateContext {
 export const PROVINCES = [
   "Lusaka", "Copperbelt", "Southern", "Eastern", "Northern",
   "Western", "Luapula", "North-Western", "Muchinga", "Central",
-];
-
-export const PROJECT_TYPES = [
-  { val: "building", label: "Building" },
-  { val: "civil", label: "Civil works" },
-  { val: "water_sanitation", label: "Water & sanitation" },
-  { val: "road", label: "Road & pavement" },
-  { val: "mep", label: "MEP" },
-  { val: "mixed", label: "Mixed" },
 ];
 
 export const DEFAULT_CONTEXT: RateContext = {
@@ -68,7 +64,7 @@ export function RateAssumptions({ ctx, onChange, defaultOpen = false }: Props) {
         <span className="text-xs font-medium text-gray-400">Pricing assumptions</span>
         <span className="text-xs text-gray-500 flex items-center gap-2">
           <span className="text-gray-500">
-            {ctx.province} · {ctx.projectType.replace("_", " ")} · {ctx.marginPct}%
+            {ctx.province} · {formatProjectType(ctx.projectType)} · {ctx.marginPct}%
             {ctx.isGovernmentTender ? " · Govt" : ""}
           </span>
           <svg
@@ -105,13 +101,13 @@ export function RateAssumptions({ ctx, onChange, defaultOpen = false }: Props) {
           <div className="space-y-2">
             <p className="text-xs font-medium text-white">Project type</p>
             <div className="flex flex-wrap gap-1.5">
-              {PROJECT_TYPES.map(({ val, label }) => (
+              {PROJECT_TYPES.map(({ value, label }) => (
                 <button
-                  key={val}
+                  key={value}
                   type="button"
-                  onClick={() => set({ projectType: val })}
+                  onClick={() => set({ projectType: value })}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    ctx.projectType === val ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"
+                    ctx.projectType === value ? "bg-amber-400 text-black" : "bg-white/10 text-gray-300 hover:bg-white/15"
                   }`}
                 >
                   {label}
