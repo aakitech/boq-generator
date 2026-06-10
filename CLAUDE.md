@@ -27,8 +27,10 @@ AI-powered Bill of Quantities generator for Zambian construction. Two tracks:
 | Person | Role | GitHub |
 |---|---|---|
 | Brighton | Tech lead, repo owner | @dev-thandabantu |
-| Kundai | Developer | @kundaiclayton |
-| Munashe | Developer | @dev-munashe |
+| Kundai | Full-stack developer | @kundaiclayton |
+| Munashe | Full-stack developer | @dev-munashe |
+
+Brighton gets concise technical responses. Kundai and Munashe are full-stack but less senior — give them more context on architecture decisions and PR workflow when they're the one asking.
 
 ## Tech stack
 
